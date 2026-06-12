@@ -413,8 +413,11 @@ function SlipModal({ slip, toast, onSaved, onDeleted, onClose }) {
         className="w-full max-w-md bg-card rounded-t-3xl max-h-[90vh] flex flex-col animate-slide-up"
         onClick={e => e.stopPropagation()}
       >
+        {/* ขีดจับ — บอกว่าเป็นแผ่นที่เลื่อนขึ้นมา ปิดได้ */}
+        <div className="mx-auto mt-3 h-1.5 w-10 rounded-full bg-muted shrink-0" />
+
         {/* Header */}
-        <div className="flex items-center justify-between gap-3 px-5 pt-5 pb-3 border-b border-border">
+        <div className="flex items-center justify-between gap-3 px-5 pt-3 pb-3 border-b border-border">
           <div className="min-w-0">
             <p className="font-bold truncate">
               {editing ? 'แก้ไขรายละเอียด' : slip.sender_name || slip.category || slip.note || 'ไม่ระบุชื่อ'}
@@ -448,14 +451,14 @@ function SlipModal({ slip, toast, onSaved, onDeleted, onClose }) {
                 <button
                   type="button"
                   onClick={() => setField('type', 'income')}
-                  className={`h-11 rounded-xl text-sm font-semibold border transition-colors ${form.type !== 'expense' ? 'bg-green-500 text-white border-green-500' : 'bg-card text-muted-foreground border-border'}`}
+                  className={`h-11 rounded-xl text-sm font-semibold border transition-colors ${form.type !== 'expense' ? 'bg-green-600 text-white border-green-600' : 'bg-card text-muted-foreground border-border'}`}
                 >
                   รายรับ
                 </button>
                 <button
                   type="button"
                   onClick={() => setField('type', 'expense')}
-                  className={`h-11 rounded-xl text-sm font-semibold border transition-colors ${form.type === 'expense' ? 'bg-red-500 text-white border-red-500' : 'bg-card text-muted-foreground border-border'}`}
+                  className={`h-11 rounded-xl text-sm font-semibold border transition-colors ${form.type === 'expense' ? 'bg-red-600 text-white border-red-600' : 'bg-card text-muted-foreground border-border'}`}
                 >
                   รายจ่าย
                 </button>

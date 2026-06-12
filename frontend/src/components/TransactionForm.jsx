@@ -65,8 +65,11 @@ export default function TransactionForm({ toast, onSaved, onClose }) {
         className="w-full max-w-md bg-card rounded-t-3xl max-h-[90vh] flex flex-col animate-slide-up"
         onClick={e => e.stopPropagation()}
       >
+        {/* ขีดจับ — บอกว่าเป็นแผ่นที่เลื่อนขึ้นมา ปิดได้ */}
+        <div className="mx-auto mt-3 h-1.5 w-10 rounded-full bg-muted shrink-0" />
+
         {/* Header */}
-        <div className="flex items-center justify-between gap-3 px-5 pt-5 pb-3 border-b border-border">
+        <div className="flex items-center justify-between gap-3 px-5 pt-3 pb-3 border-b border-border">
           <p className="font-bold text-lg">เพิ่มรายการเอง</p>
           <button
             onClick={onClose}
@@ -86,7 +89,7 @@ export default function TransactionForm({ toast, onSaved, onClose }) {
               onClick={() => setType('income')}
               className={`h-12 rounded-xl text-base font-semibold border transition-colors ${
                 !isExpense
-                  ? 'bg-green-500 text-white border-green-500'
+                  ? 'bg-green-600 text-white border-green-600'
                   : 'bg-card text-muted-foreground border-border'
               }`}
             >
@@ -97,7 +100,7 @@ export default function TransactionForm({ toast, onSaved, onClose }) {
               onClick={() => setType('expense')}
               className={`h-12 rounded-xl text-base font-semibold border transition-colors ${
                 isExpense
-                  ? 'bg-red-500 text-white border-red-500'
+                  ? 'bg-red-600 text-white border-red-600'
                   : 'bg-card text-muted-foreground border-border'
               }`}
             >

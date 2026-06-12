@@ -14,6 +14,7 @@ export default function Home({ profile }) {
   const cameraRef = useRef(null)
   const galleryRef = useRef(null)
   const [items, setItems] = useState([])
+  const [uploadType, setUploadType] = useState('income') // ทิศทางเงินของสลิปชุดนี้: 'income' | 'expense'
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState(null)
   const [showManual, setShowManual] = useState(false)
@@ -47,6 +48,7 @@ export default function Home({ profile }) {
         senderName: data.note || data.sender_name || data.category || (isExpense ? 'รายจ่าย' : 'รายรับ'),
         bank: data.category || (isExpense ? 'รายจ่าย' : 'รายรับ'),
         amount: data.amount,
+        type: data.type,
       },
     }
     setResults(prev => [item, ...(prev || [])])
@@ -57,6 +59,7 @@ export default function Home({ profile }) {
     setLoading(true)
     try {
       const form = new FormData()
+      form.append('type', uploadType)
       items.forEach(item => form.append('images', item.file))
 
       const res = await apiPostForm('/api/slip/upload-batch', form)
@@ -68,7 +71,11 @@ export default function Home({ profile }) {
         toast({ message: 'ทำรายการถี่เกินไป กรุณารอสักครู่', type: 'warning' })
         return
       }
-      if (!res.ok) throw new Error()
+      if (!res.ok) {
+        // เอาข้อความจริงจาก server มาแสดง (เช่น "ไฟล์ใหญ่เกิน 10MB") ถ้ามี
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j.message || '')
+      }
       const data = await res.json()
       const list = data.results || []
 
@@ -84,8 +91,8 @@ export default function Home({ profile }) {
           : `สำเร็จ ${ok} · ซ้ำ/ผิดพลาด ${fail}`,
         type: fail === 0 ? 'success' : 'warning',
       })
-    } catch {
-      toast({ message: 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง', type: 'error' })
+    } catch (e) {
+      toast({ message: e.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง', type: 'error' })
     } finally {
       setLoading(false)
     }
@@ -115,7 +122,35 @@ export default function Home({ profile }) {
           <h2 className="text-xl font-bold">อัพโหลดสลิป</h2>
           <p className="text-sm text-muted-foreground mt-1">{items.length} / {MAX_FILES} รายการ</p>
 
-          <div className="grid grid-cols-2 gap-3 mt-4">
+          {/* ทิศทางเงินของสลิปชุดนี้ — บอกระบบว่าเป็นเงินเข้าหรือเงินออก (แก้รายใบทีหลังได้ในหน้ารายงาน) */}
+          <div className="grid grid-cols-2 gap-2 mt-4">
+            <button
+              type="button"
+              onClick={() => setUploadType('income')}
+              disabled={loading}
+              className={`h-11 rounded-xl text-sm font-semibold border transition-colors ${
+                uploadType === 'income'
+                  ? 'bg-green-600 text-white border-green-600'
+                  : 'bg-card text-muted-foreground border-border'
+              }`}
+            >
+              เงินเข้า (รายรับ)
+            </button>
+            <button
+              type="button"
+              onClick={() => setUploadType('expense')}
+              disabled={loading}
+              className={`h-11 rounded-xl text-sm font-semibold border transition-colors ${
+                uploadType === 'expense'
+                  ? 'bg-red-600 text-white border-red-600'
+                  : 'bg-card text-muted-foreground border-border'
+              }`}
+            >
+              เงินออก (รายจ่าย)
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 mt-3">
             <Button
               className="h-12 rounded-xl"
               disabled={items.length >= MAX_FILES || loading}
@@ -143,7 +178,7 @@ export default function Home({ profile }) {
                   <img src={item.imageUrl} alt="" className="w-full h-full object-cover rounded-xl" />
                   <button
                     onClick={() => removeItem(i)}
-                    className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-primary text-primary-foreground rounded-full flex items-center justify-center shadow"
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-foreground/80 text-background rounded-full flex items-center justify-center shadow"
                   >
                     <X className="size-3" />
                   </button>
@@ -216,9 +251,10 @@ function ResultSummary({ results }) {
   const ok = results.filter(r => r.status === 'success').length
   const dup = results.filter(r => r.status === 'duplicate').length
   const err = results.filter(r => r.status === 'error').length
+  // ยอดสุทธิ: เงินเข้าเป็นบวก เงินออกเป็นลบ (รายการที่ไม่มี type = เงินเข้า)
   const total = results
     .filter(r => r.status === 'success' && r.data?.amount)
-    .reduce((sum, r) => sum + Number(r.data.amount), 0)
+    .reduce((sum, r) => sum + Number(r.data.amount) * (r.data.type === 'expense' ? -1 : 1), 0)
 
   return (
     <section className="mt-4 rounded-2xl border border-border bg-card shadow-sm overflow-hidden animate-slide-up">
@@ -231,8 +267,8 @@ function ResultSummary({ results }) {
             {err > 0 && ` · ผิดพลาด ${err}`}
           </p>
         </div>
-        {total > 0 && (
-          <p className="mt-1 text-2xl font-bold">
+        {total !== 0 && (
+          <p className={`mt-1 text-2xl font-bold ${total < 0 ? 'text-red-600' : ''}`}>
             {total.toLocaleString('th-TH', { minimumFractionDigits: 2 })}{' '}
             <span className="text-sm font-normal text-muted-foreground">บาท</span>
           </p>
@@ -243,7 +279,7 @@ function ResultSummary({ results }) {
           const isOk = r.status === 'success'
           const isDup = r.status === 'duplicate'
           const Icon = isOk ? CheckCircle : isDup ? AlertTriangle : XCircle
-          const color = isOk ? 'text-green-500' : isDup ? 'text-yellow-500' : 'text-destructive'
+          const color = isOk ? 'text-green-600' : isDup ? 'text-amber-600' : 'text-destructive'
           const label = isOk ? 'สำเร็จ' : isDup ? 'สลิปซ้ำ' : 'ผิดพลาด'
           return (
             <div key={i} className="flex items-center justify-between px-5 py-3 gap-3">
@@ -254,8 +290,10 @@ function ResultSummary({ results }) {
                   <p className="text-xs text-muted-foreground truncate">{r.data?.bank || r.message || label}</p>
                 </div>
               </div>
-              <p className="text-sm font-bold shrink-0">
-                {r.data?.amount ? `${Number(r.data.amount).toLocaleString('th-TH')} ฿` : label}
+              <p className={`text-sm font-bold shrink-0 ${r.data?.amount ? (r.data.type === 'expense' ? 'text-red-600' : 'text-green-600') : ''}`}>
+                {r.data?.amount
+                  ? `${r.data.type === 'expense' ? '-' : '+'}${Number(r.data.amount).toLocaleString('th-TH')} ฿`
+                  : label}
               </p>
             </div>
           )

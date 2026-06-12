@@ -485,4 +485,4 @@ vercel --prod
 
 ## ผู้พัฒนา
 
-- Ruangyot
+- Ruangyot Jundai

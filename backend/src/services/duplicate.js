@@ -5,11 +5,15 @@ export function hashBuffer(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex')
 }
 
-export async function checkByHash(imageHash) {
-  if (!imageHash) return false
+// ตรวจซ้ำ "ภายในสมุดบัญชีของผู้ใช้คนนั้น" เท่านั้น (.eq line_user_id) —
+// สลิปใบเดียวกันอาจถูกบันทึกโดยทั้งคนโอนและคนรับ ซึ่งเป็นคนละสมุดบัญชีกัน ไม่ถือว่าซ้ำ
+
+export async function checkByHash(imageHash, lineUserId) {
+  if (!imageHash || !lineUserId) return false
   const { data, error } = await supabase
     .from('slips')
     .select('id')
+    .eq('line_user_id', lineUserId)
     .eq('image_hash', imageHash)
     .limit(1)
   if (error) {
@@ -19,14 +23,15 @@ export async function checkByHash(imageHash) {
   return data.length > 0
 }
 
-export async function checkByRefNo(referenceNo) {
+export async function checkByRefNo(referenceNo, lineUserId) {
   // ข้ามค่าว่าง/สั้นเกินไป — กัน false positive จากเลขอ้างอิงที่อ่านมาไม่ครบ
   const ref = (referenceNo || '').trim()
-  if (ref.length < 6) return false
+  if (ref.length < 6 || !lineUserId) return false
 
   const { data, error } = await supabase
     .from('slips')
     .select('id')
+    .eq('line_user_id', lineUserId)
     .eq('reference_no', ref)
     .limit(1)
   if (error) {

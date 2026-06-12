@@ -4,23 +4,25 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 47.4% 11.2%;
+    /* โทนหลัก: เขียวอมฟ้า (teal) สุภาพ เป็นกลางทุกเพศทุกวัย
+       พื้นหลังติดเขียวอ่อนมาก ๆ ให้การ์ดสีขาวลอยเด่นขึ้น อ่านแยกส่วนง่าย */
+    --background: 168 32% 97%;
+    --foreground: 196 28% 16%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 47.4% 11.2%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 47.4% 11.2%;
+    --card-foreground: 196 28% 16%;
+    --primary: 172 65% 29%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 170 35% 93%;
+    --secondary-foreground: 172 55% 22%;
+    --muted: 175 20% 94%;
+    --muted-foreground: 196 14% 44%;
+    --accent: 170 42% 92%;
+    --accent-foreground: 172 55% 22%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 172 18% 88%;
+    --input: 172 16% 84%;
+    --ring: 172 65% 29%;
     --radius: 1rem;
   }
 
@@ -35,5 +37,6 @@
     color: hsl(var(--foreground));
     font-family: 'Sarabun', sans-serif;
     overscroll-behavior: none;
+    -webkit-font-smoothing: antialiased;
   }
 }

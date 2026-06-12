@@ -34,20 +34,24 @@ export default function App() {
 
 function SplashScreen() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-background animate-fade-in gap-5">
-      <div className="w-20 h-20 rounded-3xl bg-primary flex items-center justify-center shadow-lg">
-        <svg width="44" height="44" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect x="6" y="10" width="36" height="28" rx="4" stroke="white" strokeWidth="3" fill="none"/>
-          <path d="M14 20h20M14 26h12" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
-          <circle cx="36" cy="34" r="8" fill="hsl(var(--primary))" stroke="white" strokeWidth="2.5"/>
-          <path d="M33 34l2 2 4-4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-background animate-fade-in gap-6 px-6">
+      {/* โลโก้ใบสลิป (ขอบล่างหยัก) + เครื่องหมายถูก — สื่อ "บันทึกสลิปสำเร็จ" ตรง ๆ */}
+      <div className="w-24 h-24 rounded-[1.75rem] bg-primary flex items-center justify-center shadow-lg shadow-primary/25 animate-pop">
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M13 7h22v33l-3.7-2.8-3.6 2.8-3.7-2.8-3.6 2.8-3.7-2.8L13 40V7z" stroke="white" strokeWidth="3" strokeLinejoin="round" fill="none"/>
+          <path d="M19 15h10M19 21h6" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
+          <path d="M19 29l3.5 3.5L29 26" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </div>
       <div className="text-center">
-        <h1 className="text-2xl font-bold text-foreground">Slip-BUU</h1>
-        <p className="text-sm text-muted-foreground mt-1">ระบบส่งสลิปโอนเงิน</p>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">Slip-BUU</h1>
+        <p className="text-base text-muted-foreground mt-1.5">ระบบส่งสลิปโอนเงิน</p>
       </div>
-      <div className="w-8 h-8 border-[3px] border-primary border-t-transparent rounded-full animate-spin mt-2" />
+      <div className="flex items-center gap-2 mt-2" role="status" aria-label="กำลังโหลด">
+        <span className="w-2.5 h-2.5 rounded-full bg-primary animate-dot" />
+        <span className="w-2.5 h-2.5 rounded-full bg-primary animate-dot [animation-delay:0.15s]" />
+        <span className="w-2.5 h-2.5 rounded-full bg-primary animate-dot [animation-delay:0.3s]" />
+      </div>
     </div>
   )
 }

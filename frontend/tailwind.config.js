@@ -53,10 +53,20 @@ export default {
           '0%': { opacity: '0' },
           '100%': { opacity: '1' },
         },
+        'pop': {
+          '0%': { opacity: '0', transform: 'scale(0.92)' },
+          '100%': { opacity: '1', transform: 'scale(1)' },
+        },
+        'dot': {
+          '0%, 80%, 100%': { opacity: '0.25', transform: 'scale(0.8)' },
+          '40%': { opacity: '1', transform: 'scale(1)' },
+        },
       },
       animation: {
         'slide-up': 'slide-up 0.22s ease-out',
         'fade-in': 'fade-in 0.3s ease-out',
+        'pop': 'pop 0.45s ease-out both',
+        'dot': 'dot 1.2s ease-in-out infinite',
       },
     },
   },

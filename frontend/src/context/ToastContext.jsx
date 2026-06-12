@@ -6,6 +6,7 @@ const ToastContext = createContext(null)
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([])
   const timerRef = useRef({})
+  const nextIdRef = useRef(0) // id แบบนับเพิ่ม — Date.now() ชนกันได้ถ้าสอง toast เกิดใน ms เดียว
 
   const dismiss = useCallback((id) => {
     clearTimeout(timerRef.current[id])
@@ -13,7 +14,7 @@ export function ToastProvider({ children }) {
   }, [])
 
   const toast = useCallback(({ message, type = 'success', duration = 3000 }) => {
-    const id = Date.now()
+    const id = ++nextIdRef.current
     setToasts(prev => [...prev.slice(-2), { id, message, type }])
     timerRef.current[id] = setTimeout(() => dismiss(id), duration)
     return id
@@ -34,9 +35,9 @@ export function useToast() {
 }
 
 const CONFIG = {
-  success: { icon: CheckCircle, color: 'text-green-500', bg: 'bg-card' },
+  success: { icon: CheckCircle, color: 'text-green-600', bg: 'bg-card' },
   error:   { icon: XCircle,     color: 'text-destructive', bg: 'bg-card' },
-  warning: { icon: AlertTriangle, color: 'text-yellow-500', bg: 'bg-card' },
+  warning: { icon: AlertTriangle, color: 'text-amber-600', bg: 'bg-card' },
 }
 
 function ToastItem({ id, message, type, onDismiss }) {

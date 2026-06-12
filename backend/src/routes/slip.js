@@ -4,6 +4,7 @@ import { ocrSlip } from '../services/gemini.js'
 import { compressImage } from '../services/image.js'
 import { hashBuffer, checkByHash, checkByRefNo } from '../services/duplicate.js'
 import { supabase } from '../services/supabase.js'
+import { attachSignedImageUrls, storagePathOf } from '../services/storage.js'
 import { upsertUser } from '../services/users.js'
 import { rateLimitByUser } from '../services/rateLimit.js'
 
@@ -16,11 +17,12 @@ const upload = multer({
 /**
  * ประมวลผลสลิป 1 ไฟล์: ตรวจซ้ำ → OCR → กรอง → อัพโหลด → บันทึก
  * คืนค่า object สำหรับตอบกลับ client (มี status + data)
+ * @param {'income'|'expense'} type ทิศทางเงินของสลิปชุดนี้ (ผู้ใช้เลือกตอนอัปโหลด)
  */
-async function processSlip(file, lineUserId) {
+async function processSlip(file, lineUserId, type = 'income') {
   // 1. ตรวจซ้ำด้วย image hash ของไฟล์ต้นฉบับ (จับการอัปโหลดรูปเดิมซ้ำได้แม่นสุด)
   const imageHash = hashBuffer(file.buffer)
-  if (await checkByHash(imageHash)) {
+  if (await checkByHash(imageHash, lineUserId)) {
     return { status: 'duplicate', message: 'สลิปนี้เคยส่งมาแล้ว' }
   }
 
@@ -42,23 +44,24 @@ async function processSlip(file, lineUserId) {
   }
 
   // 4. ตรวจซ้ำด้วยเลขอ้างอิง
-  if (ocr.referenceNo && (await checkByRefNo(ocr.referenceNo))) {
+  if (ocr.referenceNo && (await checkByRefNo(ocr.referenceNo, lineUserId))) {
     return { status: 'duplicate', message: 'สลิปนี้เคยส่งมาแล้ว (เลขอ้างอิงซ้ำ)' }
   }
 
-  // 5. อัพโหลดรูป (ที่บีบอัดแล้ว) ไป Supabase Storage
+  // 5. อัพโหลดรูป (ที่บีบอัดแล้ว) ไป Supabase Storage — บักเก็ตเป็น private
+  //    เก็บเฉพาะ path ใน DB แล้วออก signed URL ตอนอ่าน (กันคนนอกเปิดดูรูปด้วยลิงก์เปล่า ๆ)
   const filename = `${lineUserId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
-  let imageUrl = null
+  let imagePath = null
   const { data: uploaded, error: uploadErr } = await supabase.storage
     .from('slips')
     .upload(filename, imageBuffer, { contentType: mimetype })
   if (uploaded && !uploadErr) {
-    imageUrl = supabase.storage.from('slips').getPublicUrl(filename).data.publicUrl
+    imagePath = filename
   } else if (uploadErr) {
     console.error('Storage upload error:', uploadErr.message)
   }
 
-  // 6. บันทึกลงฐานข้อมูล
+  // 6. บันทึกลงฐานข้อมูล — ลองจากชุดคอลัมน์ครบสุดก่อน แล้วถอยทีละขั้นถ้า DB ยังไม่ migrate
   const baseRow = {
     line_user_id: lineUserId,
     amount: ocr.amount,
@@ -67,24 +70,29 @@ async function processSlip(file, lineUserId) {
     bank_name: ocr.bankName,
     reference_no: ocr.referenceNo,
     transaction_at: ocr.transactionAt,
-    image_url: imageUrl,
     image_hash: imageHash,
     ocr_raw: ocr.raw,
     status: 'success',
   }
-  // คอลัมน์ใหม่ — เก็บแยกเพื่อ query ตรงๆ ได้ (ถ้า DB ยังไม่ migrate จะ fallback อัตโนมัติ)
-  const fullRow = {
-    ...baseRow,
-    fee: ocr.fee,
-    sender_account: ocr.senderAccount,
-    receiver_account: ocr.receiverAccount,
-  }
+  const extraCols = { fee: ocr.fee, sender_account: ocr.senderAccount, receiver_account: ocr.receiverAccount }
+  const legacyImageUrl = imagePath
+    ? supabase.storage.from('slips').getPublicUrl(imagePath).data.publicUrl
+    : null
 
-  let { error: dbErr } = await supabase.from('slips').insert(fullRow)
-  if (dbErr && /column|could not find|schema cache/i.test(dbErr.message)) {
-    // คอลัมน์ใหม่ยังไม่ถูกเพิ่มในฐานข้อมูล — บันทึกแบบเดิม (ข้อมูลยังอยู่ครบใน ocr_raw)
-    console.warn('New columns missing, falling back. Run migration:', dbErr.message)
-    ;({ error: dbErr } = await supabase.from('slips').insert(baseRow))
+  const attempts = [
+    // DB ปัจจุบัน (migration 004): เก็บ path สำหรับออก signed URL
+    { ...baseRow, ...extraCols, type, image_path: imagePath },
+    // DB ที่มีถึง 003 (ยังไม่มี image_path): ต้องไม่ทำ type หาย — เก็บ public URL แบบเดิมไปก่อน
+    { ...baseRow, ...extraCols, type, image_url: legacyImageUrl },
+    // DB เก่าสุด: คอลัมน์พื้นฐานเท่านั้น (ข้อมูลเต็มยังอยู่ใน ocr_raw)
+    { ...baseRow, image_url: legacyImageUrl },
+  ]
+
+  let dbErr = null
+  for (const row of attempts) {
+    ;({ error: dbErr } = await supabase.from('slips').insert(row))
+    if (!dbErr || !/column|could not find|schema cache/i.test(dbErr.message)) break
+    console.warn('Insert fallback (DB ยังไม่ migrate ครบ — รัน migration ล่าสุดด้วย):', dbErr.message)
   }
 
   if (dbErr) {
@@ -97,6 +105,7 @@ async function processSlip(file, lineUserId) {
     message: 'บันทึกสลิปสำเร็จ',
     data: {
       amount: ocr.amount,
+      type,
       senderName: ocr.senderName,
       receiverName: ocr.receiverName,
       bank: ocr.bankName,
@@ -148,13 +157,22 @@ router.patch('/:id', async (req, res) => {
     }
 
     // .eq('line_user_id') ทำให้แก้ได้เฉพาะสลิปของตัวเอง — ของคนอื่นจะไม่ match (data = null)
-    const { data, error } = await supabase
-      .from('slips')
-      .update(update)
-      .eq('id', id)
-      .eq('line_user_id', lineUserId)
-      .select('id, amount, sender_name, receiver_name, bank_name, reference_no, transaction_at, image_url, created_at, note, category, type')
-      .maybeSingle()
+    const BASE_COLS =
+      'id, amount, sender_name, receiver_name, bank_name, reference_no, transaction_at, image_url, created_at, note, category, type'
+    const doUpdate = (cols) =>
+      supabase
+        .from('slips')
+        .update(update)
+        .eq('id', id)
+        .eq('line_user_id', lineUserId)
+        .select(cols)
+        .maybeSingle()
+
+    let { data, error } = await doUpdate(`${BASE_COLS}, image_path`)
+    if (error && /column|could not find|schema cache/i.test(error.message)) {
+      // DB ยังไม่ migrate 004 (ไม่มีคอลัมน์ image_path) — เลือกเฉพาะคอลัมน์เดิม
+      ;({ data, error } = await doUpdate(BASE_COLS))
+    }
 
     if (error) {
       console.error('Slip update error:', error.message)
@@ -164,6 +182,7 @@ router.patch('/:id', async (req, res) => {
       return res.status(404).json({ status: 'error', message: 'ไม่พบสลิป หรือไม่มีสิทธิ์แก้ไข' })
     }
 
+    await attachSignedImageUrls([data]) // บักเก็ต private — แปลงเป็น signed URL ก่อนตอบ
     res.json({ status: 'success', message: 'แก้ไขข้อมูลสำเร็จ', data })
   } catch (err) {
     console.error('Patch slip error:', err)
@@ -178,13 +197,20 @@ router.delete('/:id', async (req, res) => {
     const { id } = req.params
     const lineUserId = req.lineUser.userId
 
-    const { data, error } = await supabase
-      .from('slips')
-      .delete()
-      .eq('id', id)
-      .eq('line_user_id', lineUserId)
-      .select('id')
-      .maybeSingle()
+    // select รูปกลับมาด้วยเพื่อตามไปลบไฟล์ในบักเก็ต (fallback ถ้า DB ยังไม่มี image_path)
+    const doDelete = (cols) =>
+      supabase
+        .from('slips')
+        .delete()
+        .eq('id', id)
+        .eq('line_user_id', lineUserId)
+        .select(cols)
+        .maybeSingle()
+
+    let { data, error } = await doDelete('id, image_url, image_path')
+    if (error && /column|could not find|schema cache/i.test(error.message)) {
+      ;({ data, error } = await doDelete('id, image_url'))
+    }
 
     if (error) {
       console.error('Slip delete error:', error.message)
@@ -192,6 +218,17 @@ router.delete('/:id', async (req, res) => {
     }
     if (!data) {
       return res.status(404).json({ status: 'error', message: 'ไม่พบรายการ หรือไม่มีสิทธิ์ลบ' })
+    }
+
+    // ลบไฟล์รูปในบักเก็ตแบบ best-effort — รายการใน DB ลบไปแล้ว ถ้าลบไฟล์พลาดแค่ log ไว้
+    const path = storagePathOf(data)
+    if (path) {
+      supabase.storage
+        .from('slips')
+        .remove([path])
+        .then(({ error: rmErr }) => {
+          if (rmErr) console.error('Storage remove error:', rmErr.message)
+        })
     }
 
     res.json({ status: 'success', message: 'ลบรายการสำเร็จ' })
@@ -274,13 +311,16 @@ router.post('/upload-batch', rateLimitByUser, upload.array('images', 10), async 
     return res.status(400).json({ error: 'ไม่พบไฟล์รูป' })
   }
 
+  // ทิศทางเงินของสลิปชุดนี้ — ผู้ใช้เลือกตอนอัปโหลด (ค่าอื่น/ไม่ส่ง = รายรับ ตามพฤติกรรมเดิม)
+  const type = req.body.type === 'expense' ? 'expense' : 'income'
+
   // ต้องมี user ก่อน insert slip (กัน FK violation) + เก็บโปรไฟล์ล่าสุด
   await upsertUser(req.lineUser)
 
   const results = []
   for (const file of files) {
     try {
-      results.push(await processSlip(file, lineUserId))
+      results.push(await processSlip(file, lineUserId, type))
     } catch (err) {
       console.error('Batch item error:', err)
       results.push({ status: 'error', message: 'เกิดข้อผิดพลาด' })
@@ -288,6 +328,16 @@ router.post('/upload-batch', rateLimitByUser, upload.array('images', 10), async 
   }
 
   res.json({ results })
+})
+
+// ───────────────────── Error handler ของ route นี้ ─────────────────────
+// แปลง error จาก multer (เช่นไฟล์ใหญ่เกิน) เป็น JSON ข้อความไทย แทน HTML 500 ปริศนา
+router.use((err, _req, res, _next) => {
+  if (err?.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ status: 'error', message: 'ไฟล์ใหญ่เกิน 10MB กรุณาเลือกรูปที่เล็กกว่านี้' })
+  }
+  console.error('Slip route error:', err)
+  res.status(500).json({ status: 'error', message: 'เกิดข้อผิดพลาด กรุณาลองใหม่' })
 })
 
 export default router
