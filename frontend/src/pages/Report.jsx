@@ -169,17 +169,21 @@ export default function Report() {
                 <ChevronDown className="size-4 text-muted-foreground" />
               </button>
               {showDropdown && (
-                <div className="absolute right-0 top-full mt-1 z-10 rounded-xl border border-border bg-card shadow-md overflow-hidden min-w-[120px]">
-                  {PERIODS.map(p => (
-                    <button
-                      key={p.key}
-                      className={`block w-full text-left px-4 py-2.5 text-sm hover:bg-accent ${period === p.key ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}
-                      onClick={() => { setPeriod(p.key); setShowDropdown(false) }}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
+                <>
+                  {/* ชั้นโปร่งใสคลุมทั้งจอ — แตะที่ไหนก็ได้นอกเมนูเพื่อปิด */}
+                  <div className="fixed inset-0 z-10" onClick={() => setShowDropdown(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-20 rounded-xl border border-border bg-card shadow-md overflow-hidden min-w-[120px]">
+                    {PERIODS.map(p => (
+                      <button
+                        key={p.key}
+                        className={`block w-full text-left px-4 py-2.5 text-sm hover:bg-accent ${period === p.key ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}
+                        onClick={() => { setPeriod(p.key); setShowDropdown(false) }}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           </div>

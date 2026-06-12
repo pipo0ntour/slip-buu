@@ -14,6 +14,20 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 })
 
+// ข้อความบอกว่าซ้ำกับรายการไหน — ร้านค้าจะได้เช็คย้อนได้ว่าบันทึกไปเมื่อไหร่ ยอดเท่าไร
+function describeDuplicate(row, reason = '') {
+  const parts = []
+  if (row?.created_at) {
+    const when = new Date(row.created_at).toLocaleDateString('th-TH', {
+      timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', year: '2-digit',
+    })
+    parts.push(`เคยบันทึกเมื่อ ${when}`)
+  }
+  if (row?.amount != null) parts.push(`ยอด ${Number(row.amount).toLocaleString('th-TH')} บาท`)
+  const detail = parts.length ? ` (${parts.join(' · ')})` : ''
+  return `สลิปซ้ำ${reason}${detail}`
+}
+
 /**
  * ประมวลผลสลิป 1 ไฟล์: ตรวจซ้ำ → OCR → กรอง → อัพโหลด → บันทึก
  * คืนค่า object สำหรับตอบกลับ client (มี status + data)
@@ -22,8 +36,9 @@ const upload = multer({
 async function processSlip(file, lineUserId, type = 'income') {
   // 1. ตรวจซ้ำด้วย image hash ของไฟล์ต้นฉบับ (จับการอัปโหลดรูปเดิมซ้ำได้แม่นสุด)
   const imageHash = hashBuffer(file.buffer)
-  if (await checkByHash(imageHash, lineUserId)) {
-    return { status: 'duplicate', message: 'สลิปนี้เคยส่งมาแล้ว' }
+  const dupByHash = await checkByHash(imageHash, lineUserId)
+  if (dupByHash) {
+    return { status: 'duplicate', message: describeDuplicate(dupByHash) }
   }
 
   // 2. บีบอัด + หมุนรูปตาม EXIF (ไฟล์เล็กลง, OCR แม่นขึ้น) ใช้ buffer นี้ทั้ง OCR และ Storage
@@ -35,7 +50,14 @@ async function processSlip(file, lineUserId, type = 'income') {
     ocr = await ocrSlip(imageBuffer, mimetype)
   } catch (err) {
     console.error('OCR error:', err.message)
-    return { status: 'error', message: 'อ่านสลิปไม่สำเร็จ กรุณาลองใหม่อีกครั้ง' }
+    // แยกเคสโควต้า Gemini เต็ม (429/quota) ออกจากอ่านไม่ออกจริง — ให้ผู้ใช้รู้ว่าควรรอ ไม่ใช่ถ่ายใหม่
+    const quota = /429|quota|too many requests/i.test(err.message || '')
+    return {
+      status: 'error',
+      message: quota
+        ? 'คิวอ่านสลิปเต็มชั่วคราว กรุณารอสักครู่แล้วส่งใบนี้ใหม่'
+        : 'อ่านสลิปไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
+    }
   }
 
   // 3. กรองรูปที่ไม่ใช่สลิป (ไม่ใช่สลิป และอ่านยอดเงินไม่ได้)
@@ -44,8 +66,11 @@ async function processSlip(file, lineUserId, type = 'income') {
   }
 
   // 4. ตรวจซ้ำด้วยเลขอ้างอิง
-  if (ocr.referenceNo && (await checkByRefNo(ocr.referenceNo, lineUserId))) {
-    return { status: 'duplicate', message: 'สลิปนี้เคยส่งมาแล้ว (เลขอ้างอิงซ้ำ)' }
+  if (ocr.referenceNo) {
+    const dupByRef = await checkByRefNo(ocr.referenceNo, lineUserId)
+    if (dupByRef) {
+      return { status: 'duplicate', message: describeDuplicate(dupByRef, ' — เลขอ้างอิงตรงกัน') }
+    }
   }
 
   // 5. อัพโหลดรูป (ที่บีบอัดแล้ว) ไป Supabase Storage — บักเก็ตเป็น private

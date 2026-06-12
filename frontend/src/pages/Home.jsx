@@ -16,11 +16,18 @@ export default function Home({ profile }) {
   const [items, setItems] = useState([])
   const [uploadType, setUploadType] = useState('income') // ทิศทางเงินของสลิปชุดนี้: 'income' | 'expense'
   const [loading, setLoading] = useState(false)
+  const [progress, setProgress] = useState(null) // { current, total } ระหว่างอ่านสลิปทีละใบ
   const [results, setResults] = useState(null)
   const [showManual, setShowManual] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState(null) // รูปสลิปที่กดดูจากรายการผลลัพธ์
 
   function addFiles(fileList) {
-    setResults(null) // เริ่มชุดใหม่ ล้างผลเดิม
+    // เริ่มชุดใหม่ ล้างผลเดิม — คืน memory ของรูปที่ค้างอยู่ในผลลัพธ์รอบก่อนด้วย
+    setPreviewUrl(null)
+    setResults(prev => {
+      prev?.forEach(r => { if (r.imageUrl) URL.revokeObjectURL(r.imageUrl) })
+      return null
+    })
     const incoming = Array.from(fileList)
     setItems(prev => {
       const slots = MAX_FILES - prev.length
@@ -57,29 +64,37 @@ export default function Home({ profile }) {
   async function handleUpload() {
     if (!items.length || loading) return
     setLoading(true)
+    const total = items.length
+    const list = []
     try {
-      const form = new FormData()
-      form.append('type', uploadType)
-      items.forEach(item => form.append('images', item.file))
+      // ส่งทีละใบ — แสดงความคืบหน้าได้จริง และใบไหนล้มเหลว (เช่นติดโควต้า OCR) ใบที่เหลือไปต่อได้
+      for (let i = 0; i < total; i++) {
+        setProgress({ current: i + 1, total })
+        const form = new FormData()
+        form.append('type', uploadType)
+        form.append('images', items[i].file)
 
-      const res = await apiPostForm('/api/slip/upload-batch', form)
-      if (res.status === 401) {
-        toast({ message: 'เซสชันหมดอายุ กรุณาปิดแล้วเปิดใหม่ผ่านเมนูใน LINE', type: 'error' })
-        return
+        // แนบรูป local ของใบนี้ไปกับผลลัพธ์ — ผู้ใช้กดดูได้ว่าใบไหนซ้ำ/ผิดพลาด
+        const imageUrl = items[i].imageUrl
+        try {
+          const res = await apiPostForm('/api/slip/upload-batch', form)
+          if (res.status === 401) {
+            toast({ message: 'เซสชันหมดอายุ กรุณาปิดแล้วเปิดใหม่ผ่านเมนูใน LINE', type: 'error' })
+            return // เก็บรูปที่เหลือไว้ให้ส่งใหม่หลังเปิดแอปอีกรอบ
+          }
+          const data = await res.json().catch(() => ({}))
+          if (!res.ok) {
+            // เอาข้อความจริงจาก server มาแสดง (เช่น "ไฟล์ใหญ่เกิน 10MB" / "ทำรายการถี่เกินไป")
+            list.push({ status: 'error', message: data.message || 'เกิดข้อผิดพลาด', imageUrl })
+            continue
+          }
+          list.push(...(data.results || []).map(r => ({ ...r, imageUrl })))
+        } catch {
+          list.push({ status: 'error', message: 'เกิดข้อผิดพลาด กรุณาลองใหม่', imageUrl })
+        }
       }
-      if (res.status === 429) {
-        toast({ message: 'ทำรายการถี่เกินไป กรุณารอสักครู่', type: 'warning' })
-        return
-      }
-      if (!res.ok) {
-        // เอาข้อความจริงจาก server มาแสดง (เช่น "ไฟล์ใหญ่เกิน 10MB") ถ้ามี
-        const j = await res.json().catch(() => ({}))
-        throw new Error(j.message || '')
-      }
-      const data = await res.json()
-      const list = data.results || []
 
-      items.forEach(item => URL.revokeObjectURL(item.imageUrl))
+      // ไม่ revoke object URL ที่นี่ — รูปยังถูกใช้แสดงในผลลัพธ์ (ล้างตอนเริ่มชุดใหม่ใน addFiles)
       setItems([])
       setResults(list)
 
@@ -91,10 +106,9 @@ export default function Home({ profile }) {
           : `สำเร็จ ${ok} · ซ้ำ/ผิดพลาด ${fail}`,
         type: fail === 0 ? 'success' : 'warning',
       })
-    } catch (e) {
-      toast({ message: e.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง', type: 'error' })
     } finally {
       setLoading(false)
+      setProgress(null)
     }
   }
 
@@ -193,12 +207,22 @@ export default function Home({ profile }) {
             disabled={items.length === 0 || loading}
             onClick={handleUpload}
           >
-            {loading
-              ? 'กำลังส่ง...'
-              : items.length > 0
-                ? `อัพโหลด ${items.length} สลิป`
-                : 'อัพโหลด 0 สลิป'}
+            {loading ? (
+              <>
+                <span className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
+                {progress ? `กำลังอ่านสลิป ${progress.current}/${progress.total}` : 'กำลังส่ง...'}
+              </>
+            ) : items.length > 0 ? (
+              `อัพโหลด ${items.length} สลิป`
+            ) : (
+              'อัพโหลด 0 สลิป'
+            )}
           </Button>
+          {loading && progress && progress.total > 1 && (
+            <p className="text-xs text-muted-foreground text-center mt-2">
+              สลิปหลายใบอาจใช้เวลาสักครู่ กรุณาอย่าปิดหน้านี้
+            </p>
+          )}
         </section>
 
         {/* เพิ่มรายการเอง — สำหรับรายการที่ไม่มีสลิป (เช่น จ่ายเงินสด) */}
@@ -213,9 +237,19 @@ export default function Home({ profile }) {
 
         {/* ผลล่าสุด (inline — ไม่เด้งออกไปอีกหน้า) */}
         {results && results.length > 0 && (
-          <ResultSummary results={results} />
+          <ResultSummary results={results} onPreview={setPreviewUrl} />
         )}
       </div>
+
+      {/* ดูรูปสลิปเต็มจอ — กดที่ไหนก็ได้เพื่อปิด */}
+      {previewUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => setPreviewUrl(null)}
+        >
+          <img src={previewUrl} alt="สลิป" className="max-w-full max-h-full rounded-2xl object-contain" />
+        </div>
+      )}
 
       {showManual && (
         <TransactionForm
@@ -247,7 +281,7 @@ export default function Home({ profile }) {
   )
 }
 
-function ResultSummary({ results }) {
+function ResultSummary({ results, onPreview }) {
   const ok = results.filter(r => r.status === 'success').length
   const dup = results.filter(r => r.status === 'duplicate').length
   const err = results.filter(r => r.status === 'error').length
@@ -281,9 +315,18 @@ function ResultSummary({ results }) {
           const Icon = isOk ? CheckCircle : isDup ? AlertTriangle : XCircle
           const color = isOk ? 'text-green-600' : isDup ? 'text-amber-600' : 'text-destructive'
           const label = isOk ? 'สำเร็จ' : isDup ? 'สลิปซ้ำ' : 'ผิดพลาด'
+          // มีรูปแนบ → ทั้งแถวกดดูรูปได้ (สำคัญตอนขึ้น "ซ้ำ" จะได้รู้ว่าใบไหน)
+          const Row = r.imageUrl ? 'button' : 'div'
           return (
-            <div key={i} className="flex items-center justify-between px-5 py-3 gap-3">
+            <Row
+              key={i}
+              {...(r.imageUrl ? { type: 'button', onClick: () => onPreview?.(r.imageUrl) } : {})}
+              className="w-full flex items-center justify-between px-5 py-3 gap-3 text-left active:bg-accent transition-colors"
+            >
               <div className="flex items-center gap-3 min-w-0">
+                {r.imageUrl && (
+                  <img src={r.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover border border-border shrink-0" />
+                )}
                 <Icon className={`size-5 shrink-0 ${color}`} />
                 <div className="min-w-0">
                   <p className="text-sm font-semibold truncate">{r.data?.senderName || `สลิป ${i + 1}`}</p>
@@ -295,7 +338,7 @@ function ResultSummary({ results }) {
                   ? `${r.data.type === 'expense' ? '-' : '+'}${Number(r.data.amount).toLocaleString('th-TH')} ฿`
                   : label}
               </p>
-            </div>
+            </Row>
           )
         })}
       </div>

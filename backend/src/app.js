@@ -31,7 +31,7 @@ app.use(express.json())
 app.use('/api/slip', lineAuth, slipRoute)
 app.use('/api/report', lineAuth, reportRoute)
 
-app.get('/', (_req, res) => res.json({ ok: true, service: 'slip-buu-backend', version: '1.1.0' }))
+app.get('/', (_req, res) => res.json({ ok: true, service: 'slip-buu-backend', version: '1.2.0' }))
 
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
