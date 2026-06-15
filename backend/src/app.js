@@ -8,19 +8,29 @@ import { lineAuth } from './services/lineAuth.js'
 const app = express()
 
 // จำกัด CORS เฉพาะโดเมนที่กำหนดใน CORS_ORIGIN (คั่นด้วย comma) — ถ้าไม่ตั้งไว้จะอนุญาตทุก origin
-const allowedOrigins = (process.env.CORS_ORIGIN || '')
+// แต่ละ entry เป็นได้ทั้ง origin เป๊ะ (https://app.vercel.app) หรือ pattern ที่มี * เช่น
+// https://frontend-*.vercel.app — ครอบคลุม URL ใหม่ที่ Vercel ออกให้ทุกครั้งที่ deploy (กัน CORS พังหลัง redeploy)
+const allowRules = (process.env.CORS_ORIGIN || '')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean)
+  .map((entry) =>
+    entry.includes('*')
+      ? new RegExp('^' + entry.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^.]*') + '$')
+      : entry
+  )
+
+const isAllowedOrigin = (origin) =>
+  allowRules.some((rule) => (rule instanceof RegExp ? rule.test(origin) : rule === origin))
 
 app.use(
   cors(
-    allowedOrigins.length
+    allowRules.length
       ? {
           origin(origin, cb) {
-            // อนุญาต request ที่ไม่มี origin (health check / curl) และ origin ใน allowlist
+            // อนุญาต request ที่ไม่มี origin (health check / curl) และ origin ที่เข้ากับ allowlist
             // origin อื่นๆ: ไม่ใส่ CORS header (browser บล็อกเอง) แทนการ throw เป็น 500
-            cb(null, !origin || allowedOrigins.includes(origin))
+            cb(null, !origin || isAllowedOrigin(origin))
           },
         }
       : undefined
