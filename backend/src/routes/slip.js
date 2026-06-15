@@ -265,7 +265,8 @@ router.delete('/:id', async (req, res) => {
 
 // ───────────────────── สร้างรายการเอง (ไม่มีสลิป) ─────────────────────
 // POST /api/slip/manual — บันทึกธุรกรรมที่ผู้ใช้กรอกเอง (รายรับ/รายจ่าย) สำหรับรายการที่ไม่มีสลิป
-router.post('/manual', rateLimitByUser, async (req, res) => {
+// รับรูปแนบ (ไม่บังคับ) ผ่าน field `image` — เช่นถ่ายรูปสินค้าที่ซื้อไว้เป็นหลักฐาน
+router.post('/manual', rateLimitByUser, upload.single('image'), async (req, res) => {
   try {
     const lineUserId = req.lineUser.userId
     const b = req.body || {}
@@ -286,6 +287,23 @@ router.post('/manual', rateLimitByUser, async (req, res) => {
     // ต้องมี user ก่อน insert (กัน FK violation) + เก็บโปรไฟล์ล่าสุด
     await upsertUser(req.lineUser)
 
+    // รูปแนบ (ถ้ามี) — บีบอัดแล้วอัปโหลดเข้าบักเก็ตเดียวกับสลิป เก็บแค่ path (บักเก็ต private)
+    // ไม่ตรวจซ้ำ/ไม่ OCR เพราะเป็นรูปสินค้า ไม่ใช่สลิปโอนเงิน
+    let imagePath = null
+    if (req.file) {
+      try {
+        const { buffer, mimetype } = await compressImage(req.file.buffer, req.file.mimetype)
+        const filename = `${lineUserId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
+        const { data: up, error: upErr } = await supabase.storage
+          .from('slips')
+          .upload(filename, buffer, { contentType: mimetype })
+        if (up && !upErr) imagePath = filename
+        else if (upErr) console.error('Manual image upload error:', upErr.message)
+      } catch (err) {
+        console.error('Manual image process error:', err.message) // รูปพลาด ไม่ทำให้บันทึกรายการล้ม
+      }
+    }
+
     const clean = (v) => {
       const s = (v ?? '').toString().trim()
       return s || null
@@ -305,11 +323,16 @@ router.post('/manual', rateLimitByUser, async (req, res) => {
       status: 'success',
     }
 
-    const { data, error } = await supabase
-      .from('slips')
-      .insert(row)
-      .select('id, amount, type, sender_name, receiver_name, bank_name, note, category, reference_no, transaction_at, image_url, created_at')
-      .single()
+    const SELECT_COLS =
+      'id, amount, type, sender_name, receiver_name, bank_name, note, category, reference_no, transaction_at, image_url, created_at'
+    const doInsert = (extra, cols) =>
+      supabase.from('slips').insert({ ...row, ...extra }).select(cols).single()
+
+    // ลองแบบมี image_path ก่อน (DB migration 004) แล้วถอยถ้า DB ยังไม่มีคอลัมน์นั้น
+    let { data, error } = await doInsert({ image_path: imagePath }, `${SELECT_COLS}, image_path`)
+    if (error && /column|could not find|schema cache/i.test(error.message)) {
+      ;({ data, error } = await doInsert({}, SELECT_COLS))
+    }
 
     if (error) {
       if (/column|could not find|schema cache/i.test(error.message)) {
@@ -321,6 +344,7 @@ router.post('/manual', rateLimitByUser, async (req, res) => {
       return res.status(500).json({ status: 'error', message: 'บันทึกรายการไม่สำเร็จ' })
     }
 
+    await attachSignedImageUrls([data]) // บักเก็ต private — แปลงรูปสินค้าเป็น signed URL ก่อนตอบ
     res.json({ status: 'success', message: 'บันทึกรายการสำเร็จ', data })
   } catch (err) {
     console.error('Manual slip error:', err)
