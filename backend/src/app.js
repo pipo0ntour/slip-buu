@@ -4,6 +4,7 @@ import 'dotenv/config'
 import slipRoute from './routes/slip.js'
 import reportRoute from './routes/report.js'
 import { lineAuth } from './services/lineAuth.js'
+import { startKeepAlive } from './services/keepAlive.js'
 
 const app = express()
 
@@ -44,4 +45,7 @@ app.use('/api/report', lineAuth, reportRoute)
 app.get('/', (_req, res) => res.json({ ok: true, service: 'slip-buu-backend', version: '1.2.0' }))
 
 const PORT = process.env.PORT || 3000
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`)
+  startKeepAlive() // แตะ DB เป็นรอบ กัน Supabase free tier pause
+})
