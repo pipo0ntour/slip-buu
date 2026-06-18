@@ -123,10 +123,16 @@ let chain = Promise.resolve() // คิวกลาง — กันหลาย
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-// เลือก backend ตัวแรกที่ยังมีช่องว่าง — ถ้าไม่มีเลย คืนเวลาที่ต้องรอจนกว่าช่องแรกสุดจะว่าง
+// เลือก backend แบบ least-loaded: ในบรรดาตัวที่ยังมีช่องว่าง เลือกตัวที่ "เต็มน้อยสุด"
+// เทียบสัดส่วนความจุของมันเอง (startTimes.length / rpm) → เกลี่ยโหลดให้คีย์ที่รับได้มากกว่า
+// (เช่น Groq rpm สูง) ได้สัดส่วนมากกว่าโดยอัตโนมัติ ไม่ให้คีย์ใดเต็ม quota ก่อนเวลา
+// โหลดเท่ากัน (เช่นทราฟฟิกน้อย ทุกตัวว่าง load=0) → ใช้ลำดับเดิม (Gemini ก่อน) รักษาคุณภาพ OCR
+// ถ้าไม่มีตัวว่างเลย คืนเวลาที่ต้องรอจนกว่าช่องแรกสุดจะว่าง
 function pickBackend() {
   const now = Date.now()
   let earliestWait = Infinity
+  let best = null
+  let bestLoad = Infinity
   for (const b of backends) {
     const st = backendState.get(b.id)
     if (now < st.cooldownUntil) {
@@ -134,9 +140,14 @@ function pickBackend() {
       continue
     }
     while (st.startTimes.length && now - st.startTimes[0] >= WINDOW_MS) st.startTimes.shift()
-    if (st.startTimes.length < b.rpm) return { backend: b }
-    earliestWait = Math.min(earliestWait, WINDOW_MS - (now - st.startTimes[0]))
+    if (st.startTimes.length < b.rpm) {
+      const load = st.startTimes.length / b.rpm // < ใช้ strict ด้านล่าง → โหลดเท่ากันคงตัวลำดับแรกไว้
+      if (load < bestLoad) { bestLoad = load; best = b }
+    } else {
+      earliestWait = Math.min(earliestWait, WINDOW_MS - (now - st.startTimes[0]))
+    }
   }
+  if (best) return { backend: best }
   return { waitMs: Math.max(earliestWait, 500) + 250 }
 }
 
