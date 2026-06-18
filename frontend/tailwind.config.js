@@ -34,6 +34,11 @@ export default {
         input: 'hsl(var(--input) / <alpha-value>)',
         ring: 'hsl(var(--ring) / <alpha-value>)',
         line: '#00B900',
+        // accent สดตัวเดียวของแอป — ใช้กับปุ่ม/จุดที่อยากให้เด้งออกจากโทนเทา+teal
+        coral: {
+          DEFAULT: '#FB6F5C',
+          foreground: '#FFFFFF',
+        },
       },
       borderRadius: {
         xl: 'calc(var(--radius) - 4px)',

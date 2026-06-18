@@ -1,7 +1,7 @@
 import express from 'express'
 import multer from 'multer'
-import { ocrSlip } from '../services/gemini.js'
-import { compressImage } from '../services/image.js'
+import { ocrSlip, ocrNote } from '../services/gemini.js'
+import { compressImage, OCR_PRESET, STORAGE_PRESET } from '../services/image.js'
 import { hashBuffer, checkByHash, checkByRefNo } from '../services/duplicate.js'
 import { supabase } from '../services/supabase.js'
 import { attachSignedImageUrls, storagePathOf } from '../services/storage.js'
@@ -41,13 +41,18 @@ async function processSlip(file, lineUserId, type = 'income') {
     return { status: 'duplicate', message: describeDuplicate(dupByHash) }
   }
 
-  // 2. บีบอัด + หมุนรูปตาม EXIF (ไฟล์เล็กลง, OCR แม่นขึ้น) ใช้ buffer นี้ทั้ง OCR และ Storage
-  const { buffer: imageBuffer, mimetype } = await compressImage(file.buffer, file.mimetype)
+  // 2. บีบอัด + หมุนรูปตาม EXIF แยก 2 เวอร์ชัน (ทำพร้อมกัน):
+  //    - ocrBuffer: คมชัด สำหรับให้ OCR อ่านชื่อแม่นขึ้น (ไม่เก็บ)
+  //    - imageBuffer: เล็ก สำหรับเก็บลง Storage เป็นหลักฐาน
+  const [{ buffer: ocrBuffer }, { buffer: imageBuffer, mimetype }] = await Promise.all([
+    compressImage(file.buffer, file.mimetype, OCR_PRESET),
+    compressImage(file.buffer, file.mimetype, STORAGE_PRESET),
+  ])
 
   // 3. OCR ด้วย Gemini — ถ้า fail ทั้งหมดให้แจ้ง error ไม่บันทึก record เปล่า
   let ocr
   try {
-    ocr = await ocrSlip(imageBuffer, mimetype)
+    ocr = await ocrSlip(ocrBuffer, mimetype)
   } catch (err) {
     console.error('OCR error:', err.message)
     // แยกเคสโควต้า Gemini เต็ม (429/quota) ออกจากอ่านไม่ออกจริง — ให้ผู้ใช้รู้ว่าควรรอ ไม่ใช่ถ่ายใหม่
@@ -292,7 +297,8 @@ router.post('/manual', rateLimitByUser, upload.single('image'), async (req, res)
     let imagePath = null
     if (req.file) {
       try {
-        const { buffer, mimetype } = await compressImage(req.file.buffer, req.file.mimetype)
+        // รูปสินค้า — ไม่ OCR แค่เก็บเป็นหลักฐาน ใช้ preset เล็กพอ ประหยัดพื้นที่
+        const { buffer, mimetype } = await compressImage(req.file.buffer, req.file.mimetype, STORAGE_PRESET)
         const filename = `${lineUserId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
         const { data: up, error: upErr } = await supabase.storage
           .from('slips')
@@ -348,6 +354,89 @@ router.post('/manual', rateLimitByUser, upload.single('image'), async (req, res)
     res.json({ status: 'success', message: 'บันทึกรายการสำเร็จ', data })
   } catch (err) {
     console.error('Manual slip error:', err)
+    res.status(500).json({ status: 'error', message: 'เกิดข้อผิดพลาด กรุณาลองใหม่' })
+  }
+})
+
+// ───────────────────── อ่านโน้ตลายมือ → รายการ ─────────────────────
+// POST /api/slip/note-scan — อ่านโน้ตที่จดเอง แตกเป็นรายการ (ยังไม่บันทึก — ให้ผู้ใช้ทวน/แก้ก่อน)
+router.post('/note-scan', rateLimitByUser, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ status: 'error', message: 'ไม่พบรูปโน้ต' })
+
+    // โน้ต — OCR อย่างเดียว ไม่เก็บรูป ใช้ preset คมชัดเพื่อให้อ่านลายมือ/ตัวเลขแม่น
+    const { buffer, mimetype } = await compressImage(req.file.buffer, req.file.mimetype, OCR_PRESET)
+    let items
+    try {
+      items = await ocrNote(buffer, mimetype)
+    } catch (err) {
+      console.error('Note OCR error:', err.message)
+      // แยกเคสโควต้าเต็ม (ให้รอ) ออกจากอ่านไม่ออกจริง
+      const quota = /429|quota|too many requests/i.test(err.message || '')
+      return res.status(quota ? 429 : 502).json({
+        status: 'error',
+        message: quota ? 'คิวอ่านโน้ตเต็มชั่วคราว กรุณารอสักครู่แล้วลองใหม่' : 'อ่านโน้ตไม่สำเร็จ กรุณาถ่ายใหม่ให้ชัดเจน',
+      })
+    }
+
+    // อ่านไม่พบรายการ — ตอบ success + items ว่าง ให้ฝั่ง client แจ้งผู้ใช้เพิ่มเอง
+    res.json({ status: 'success', items, message: items.length ? undefined : 'อ่านไม่พบรายการเงินในโน้ตนี้' })
+  } catch (err) {
+    console.error('Note scan error:', err)
+    res.status(500).json({ status: 'error', message: 'เกิดข้อผิดพลาด กรุณาลองใหม่' })
+  }
+})
+
+// POST /api/slip/note-save — บันทึกรายการที่ผู้ใช้ทวน/แก้จากโน้ตแล้ว (หลายรายการพร้อมกัน)
+router.post('/note-save', rateLimitByUser, async (req, res) => {
+  try {
+    const lineUserId = req.lineUser.userId
+    const input = Array.isArray(req.body?.items) ? req.body.items : []
+
+    const clean = (v) => {
+      const s = (v ?? '').toString().trim()
+      return s || null
+    }
+
+    // รายการในโน้ตชุดเดียวกัน ใช้เวลาปัจจุบันเป็นเวลาทำรายการเหมือนกัน
+    const now = new Date().toISOString()
+    const rows = []
+    for (const it of input) {
+      const amount = Number(it.amount)
+      if (!Number.isFinite(amount) || amount <= 0) continue // ข้ามแถวที่ยอดไม่ถูกต้อง
+      rows.push({
+        line_user_id: lineUserId,
+        amount,
+        type: it.type === 'income' ? 'income' : 'expense',
+        note: clean(it.description ?? it.note),
+        category: clean(it.category),
+        transaction_at: now,
+        source: 'note',
+        status: 'success',
+      })
+    }
+    if (!rows.length) return res.status(400).json({ status: 'error', message: 'ไม่มีรายการให้บันทึก' })
+
+    // ต้องมี user ก่อน insert (กัน FK violation) + เก็บโปรไฟล์ล่าสุด
+    await upsertUser(req.lineUser)
+
+    const { data, error } = await supabase
+      .from('slips')
+      .insert(rows)
+      .select('id, amount, type, note, category, transaction_at, created_at')
+
+    if (error) {
+      if (/column|could not find|schema cache/i.test(error.message)) {
+        console.error('Note save: missing columns — run migration 003:', error.message)
+        return res.status(500).json({ status: 'error', message: 'ระบบยังไม่พร้อมรองรับรายการนี้ (ต้องอัปเดตฐานข้อมูล)' })
+      }
+      console.error('Note save error:', error.message)
+      return res.status(500).json({ status: 'error', message: 'บันทึกรายการไม่สำเร็จ' })
+    }
+
+    res.json({ status: 'success', message: `บันทึก ${data.length} รายการสำเร็จ`, data })
+  } catch (err) {
+    console.error('Note save error:', err)
     res.status(500).json({ status: 'error', message: 'เกิดข้อผิดพลาด กรุณาลองใหม่' })
   }
 })

@@ -4,25 +4,25 @@
 
 @layer base {
   :root {
-    /* โทนหลัก: เขียวอมฟ้า (teal) สุภาพ เป็นกลางทุกเพศทุกวัย
-       พื้นหลังติดเขียวอ่อนมาก ๆ ให้การ์ดสีขาวลอยเด่นขึ้น อ่านแยกส่วนง่าย */
-    --background: 168 32% 97%;
-    --foreground: 196 28% 16%;
+    /* teal = สีแบรนด์/ปุ่มหลักเท่านั้น | พื้นผิวทั้งหมดเป็น "เทากลางจริง" (ไม่อมเขียว)
+       ให้ความสะอาดตา + ปล่อยให้ teal กับ accent สด (coral) เป็นตัวสร้างความหลากหลาย */
+    --background: 220 16% 97%;
+    --foreground: 222 22% 18%;
     --card: 0 0% 100%;
-    --card-foreground: 196 28% 16%;
-    --primary: 172 65% 29%;
+    --card-foreground: 222 22% 18%;
+    --primary: 172 66% 30%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 170 35% 93%;
-    --secondary-foreground: 172 55% 22%;
-    --muted: 175 20% 94%;
-    --muted-foreground: 196 14% 44%;
-    --accent: 170 42% 92%;
-    --accent-foreground: 172 55% 22%;
+    --secondary: 220 14% 94%;
+    --secondary-foreground: 222 16% 28%;
+    --muted: 220 14% 95%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 220 14% 93%;
+    --accent-foreground: 222 16% 24%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 172 18% 88%;
-    --input: 172 16% 84%;
-    --ring: 172 65% 29%;
+    --border: 220 13% 90%;
+    --input: 220 13% 86%;
+    --ring: 172 66% 30%;
     --radius: 1rem;
   }
 

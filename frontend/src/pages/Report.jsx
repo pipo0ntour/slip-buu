@@ -65,6 +65,24 @@ function summarize(slips) {
   return { totalIncome, totalExpense, net: totalIncome - totalExpense, count: slips.length }
 }
 
+// จัดกลุ่มรายจ่ายตามหมวดหมู่ (เรียงมาก→น้อย) + สัดส่วนของแต่ละหมวด — ดูว่าเงินหมดไปกับอะไรเยอะสุด
+function expenseByCategory(slips) {
+  const map = new Map()
+  let total = 0
+  for (const s of slips) {
+    if (s.type !== 'expense') continue
+    const amount = Number(s.amount) || 0
+    if (amount <= 0) continue
+    const key = s.category || 'อื่นๆ'
+    map.set(key, (map.get(key) || 0) + amount)
+    total += amount
+  }
+  const rows = [...map.entries()]
+    .map(([category, amount]) => ({ category, amount, pct: total ? amount / total : 0 }))
+    .sort((a, b) => b.amount - a.amount)
+  return { total, rows }
+}
+
 const fmtBaht = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })
 
 export default function Report() {
@@ -229,6 +247,11 @@ export default function Report() {
           </div>
         </section>
 
+        {/* รายจ่ายตามหมวดหมู่ — เห็นว่าเงินหมดไปกับอะไรเยอะสุด */}
+        {!loading && data?.slips?.length > 0 && (
+          <CategoryBreakdown slips={data.slips} />
+        )}
+
         {/* Slip list */}
         {!loading && data?.slips?.length > 0 && (
           <section className="mt-6 rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
@@ -300,6 +323,37 @@ export default function Report() {
         </div>
       </div>
     </div>
+  )
+}
+
+function CategoryBreakdown({ slips }) {
+  const { total, rows } = expenseByCategory(slips)
+  if (!rows.length) return null // ไม่มีรายจ่ายในช่วงนี้ → ไม่ต้องแสดง
+
+  return (
+    <section className="mt-6 rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+      <div className="px-5 pt-4 pb-3 flex items-baseline justify-between">
+        <p className="text-xs font-semibold tracking-wide text-muted-foreground">รายจ่ายตามหมวดหมู่</p>
+        <p className="text-xs text-muted-foreground">รวม {fmtBaht(total)} บาท</p>
+      </div>
+      <div className="px-5 pb-4 space-y-3">
+        {rows.map(r => (
+          <div key={r.category}>
+            <div className="flex justify-between items-baseline gap-2 text-sm">
+              <span className="font-medium truncate">{r.category}</span>
+              <span className="shrink-0">
+                <span className="font-semibold text-red-600">{Number(r.amount).toLocaleString('th-TH')} ฿</span>
+                <span className="text-xs text-muted-foreground ml-1.5">{Math.round(r.pct * 100)}%</span>
+              </span>
+            </div>
+            <div className="mt-1.5 h-2 rounded-full bg-muted overflow-hidden">
+              {/* อย่างน้อย 2% เพื่อให้หมวดที่ยอดน้อยมากยังเห็นแถบ */}
+              <div className="h-full rounded-full bg-red-500" style={{ width: `${Math.max(r.pct * 100, 2)}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 

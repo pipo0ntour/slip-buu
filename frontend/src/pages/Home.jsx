@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Camera, ImagePlus, BarChart3, X, CheckCircle, AlertTriangle, XCircle, Plus } from 'lucide-react'
+import { Camera, ImagePlus, BarChart3, X, CheckCircle, AlertTriangle, XCircle, Plus, NotebookPen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/context/ToastContext'
 import { apiPostForm } from '@/lib/api'
 import TransactionForm from '@/components/TransactionForm'
+import NoteScan from '@/components/NoteScan'
 
 const MAX_FILES = 10
 
@@ -19,6 +20,7 @@ export default function Home({ profile }) {
   const [progress, setProgress] = useState(null) // { current, total } ระหว่างอ่านสลิปทีละใบ
   const [results, setResults] = useState(null)
   const [showManual, setShowManual] = useState(false)
+  const [showNote, setShowNote] = useState(false) // ฟอร์มถ่ายโน้ต → สรุปรายการ
   const [previewUrl, setPreviewUrl] = useState(null) // รูปสลิปที่กดดูจากรายการผลลัพธ์
 
   function addFiles(fileList) {
@@ -59,6 +61,20 @@ export default function Home({ profile }) {
       },
     }
     setResults(prev => [item, ...(prev || [])])
+  }
+
+  // รายการที่ได้จากการถ่ายโน้ต (หลายรายการ) — แปลงให้เข้ารูปแบบผลลัพธ์ แล้วเติมบนสุด
+  function handleNoteSaved(rows) {
+    const list = (rows || []).map(d => ({
+      status: 'success',
+      data: {
+        senderName: d.note || (d.type === 'expense' ? 'รายจ่าย' : 'รายรับ'),
+        bank: d.category || 'จากโน้ต',
+        amount: d.amount,
+        type: d.type,
+      },
+    }))
+    if (list.length) setResults(prev => [...list, ...(prev || [])])
   }
 
   async function handleUpload() {
@@ -225,15 +241,30 @@ export default function Home({ profile }) {
           )}
         </section>
 
-        {/* เพิ่มรายการเอง — สำหรับรายการที่ไม่มีสลิป (เช่น จ่ายเงินสด) */}
-        <Button
-          variant="outline"
-          className="w-full h-12 rounded-2xl mt-4 text-base font-semibold"
-          onClick={() => setShowManual(true)}
-        >
-          <Plus className="size-4" />
-          เพิ่มรายการเอง (ไม่มีสลิป)
-        </Button>
+        {/* ถ่ายโน้ต (coral) + เพิ่มรายการเอง (teal) — ไทล์คู่ ไอคอนบน/ข้อความล่าง */}
+        <div className="grid grid-cols-2 gap-3 mt-4">
+          <button
+            type="button"
+            onClick={() => setShowNote(true)}
+            className="rounded-2xl border border-coral/30 bg-coral/[0.06] p-4 flex flex-col items-center gap-2 transition-transform active:scale-[0.98]"
+          >
+            <span className="w-11 h-11 rounded-xl bg-coral/15 flex items-center justify-center">
+              <NotebookPen className="size-5 text-coral" />
+            </span>
+            <span className="text-sm font-semibold text-coral">ถ่ายโน้ต</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowManual(true)}
+            className="rounded-2xl border border-primary/25 bg-primary/[0.06] p-4 flex flex-col items-center gap-2 transition-transform active:scale-[0.98]"
+          >
+            <span className="w-11 h-11 rounded-xl bg-primary/[0.12] flex items-center justify-center">
+              <Plus className="size-5 text-primary" />
+            </span>
+            <span className="text-sm font-semibold text-primary">เพิ่มรายการเอง</span>
+          </button>
+        </div>
 
         {/* ผลล่าสุด (inline — ไม่เด้งออกไปอีกหน้า) */}
         {results && results.length > 0 && (
@@ -256,6 +287,14 @@ export default function Home({ profile }) {
           toast={toast}
           onSaved={handleManualSaved}
           onClose={() => setShowManual(false)}
+        />
+      )}
+
+      {showNote && (
+        <NoteScan
+          toast={toast}
+          onSaved={handleNoteSaved}
+          onClose={() => setShowNote(false)}
         />
       )}
 
