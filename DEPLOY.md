@@ -43,7 +43,8 @@
 ### 1.3 สร้าง Storage Bucket 🟢 `[คุณทำ]` *(dashboard เท่านั้น)*
 1. **Storage** → **New bucket**
 2. ชื่อ: `slips` (ต้องตรงเป๊ะ — โค้ดอ้างชื่อนี้)
-3. เปิด **Public bucket** ✅ (เพราะหน้า Report แสดงรูปสลิปผ่าน public URL)
+3. **ปล่อยเป็น Private** (อย่าเปิด Public) — รูปสลิปมีชื่อคน/เลขบัญชี
+   โค้ดเก็บแค่ path แล้วออก **signed URL อายุจำกัด** ตอนอ่าน (ดู `backend/src/services/storage.js`)
 4. **Create**
 
 ### 1.4 เก็บค่า key 🟢 `[คุณทำ]`
@@ -198,7 +199,7 @@ railway up          # redeploy ให้ค่าใหม่มีผล
 | อัพโหลดแล้ว 401 | `LINE_LOGIN_CHANNEL_ID` ไม่ตรงกับ channel ของ LIFF |
 | อัพโหลดแล้วโดน CORS block | `CORS_ORIGIN` ไม่ตรงกับ domain Vercel (เช็คมี `https://` ไม่มี `/` ท้าย) แล้ว `railway up` ใหม่ |
 | OCR error | `GEMINI_API_KEY` ผิด / หมดโควต้า — ดู log: `railway logs` |
-| รูปสลิปในหน้า Report ไม่ขึ้น | bucket `slips` ไม่ได้ตั้งเป็น Public |
+| รูปสลิปในหน้า Report ไม่ขึ้น | ยังไม่ได้สร้าง bucket `slips` / signed URL หมดอายุ — ลองรีเฟรชหน้า (ออก signed URL ใหม่) |
 | insert DB fail | ยังไม่ได้รัน `schema.sql` หรือ migration 002 |
 
 ดู log backend แบบ realtime: `railway logs`
