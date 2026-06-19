@@ -146,6 +146,44 @@ async function processSlip(file, lineUserId, type = 'income') {
   }
 }
 
+// ───────────────────── รูปสลิป (lazy) ─────────────────────
+// GET /api/slip/:id/image — ออก signed URL ของรูปเฉพาะตอนเปิดดูทีละใบ
+// (หน้ารายงานไม่ sign ทุกใบล่วงหน้าเพื่อความเร็ว — ดู report.js)
+router.get('/:id/image', async (req, res) => {
+  try {
+    const { id } = req.params
+    const lineUserId = req.lineUser.userId
+
+    const doSelect = (cols) =>
+      supabase
+        .from('slips')
+        .select(cols)
+        .eq('id', id)
+        .eq('line_user_id', lineUserId) // ดูได้เฉพาะรูปของตัวเอง
+        .maybeSingle()
+
+    let { data, error } = await doSelect('image_url, image_path')
+    if (error && /column|could not find|schema cache/i.test(error.message)) {
+      ;({ data, error } = await doSelect('image_url'))
+    }
+    if (error) {
+      console.error('Slip image select error:', error.message)
+      return res.status(500).json({ status: 'error', message: 'โหลดรูปไม่สำเร็จ' })
+    }
+    if (!data) {
+      return res.status(404).json({ status: 'error', message: 'ไม่พบสลิป หรือไม่มีสิทธิ์ดู' })
+    }
+
+    await attachSignedImageUrls([data]) // แปลง path → signed URL (in place)
+    const url = data.image_url || null
+    if (!url) return res.status(404).json({ status: 'error', message: 'รายการนี้ไม่มีรูป' })
+    res.json({ status: 'success', url })
+  } catch (err) {
+    console.error('Slip image error:', err)
+    res.status(500).json({ status: 'error', message: 'เกิดข้อผิดพลาด กรุณาลองใหม่' })
+  }
+})
+
 // ───────────────────── แก้ไขข้อมูลสลิป ─────────────────────
 // PATCH /api/slip/:id — แก้ไขข้อมูลที่ OCR อ่านผิด (จำกัดเฉพาะเจ้าของสลิป)
 const EDITABLE_FIELDS = [

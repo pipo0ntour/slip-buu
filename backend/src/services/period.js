@@ -9,20 +9,18 @@ const TZ_OFFSET_MS = 7 * 60 * 60 * 1000
  * @param {Date=} now ใช้กำหนด "ตอนนี้" ในเทส
  * @returns {{ fromIso: string, toIso: string }} ขอบเขตเป็น instant UTC สำหรับเทียบกับ created_at
  */
-export function computeRange(period = 'daily', dateStr, now = new Date()) {
-  let y, mo, d
+// แปลงวันอ้างอิง (string YYYY-MM-DD หรือ "วันนี้") → { y, mo, d } ตามปฏิทินไทย
+function resolveAnchor(dateStr, now) {
   const anchor = typeof dateStr === 'string' && dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/)
   if (anchor) {
-    y = Number(anchor[1])
-    mo = Number(anchor[2]) - 1
-    d = Number(anchor[3])
-  } else {
-    const nowBkk = new Date(now.getTime() + TZ_OFFSET_MS) // ฟิลด์ UTC ของตัวนี้ = เวลาไทยจริง
-    y = nowBkk.getUTCFullYear()
-    mo = nowBkk.getUTCMonth()
-    d = nowBkk.getUTCDate()
+    return { y: Number(anchor[1]), mo: Number(anchor[2]) - 1, d: Number(anchor[3]) }
   }
+  const nowBkk = new Date(now.getTime() + TZ_OFFSET_MS) // ฟิลด์ UTC ของตัวนี้ = เวลาไทยจริง
+  return { y: nowBkk.getUTCFullYear(), mo: nowBkk.getUTCMonth(), d: nowBkk.getUTCDate() }
+}
 
+// แปลงวันอ้างอิง { y, mo, d } เป็นขอบเขต instant UTC ตาม granularity
+function rangeFromAnchor(period, { y, mo, d }) {
   // ช่วงเวลามีทั้งขอบล่าง (start) และขอบบน (end) → ดูช่วงไหนก็ได้ ไม่ใช่แค่ "ถึงปัจจุบัน"
   // Date.UTC จัดการ overflow ให้เอง (เช่น d+1 ข้ามเดือน, mo+1 ข้ามปี)
   let startWallclock, endWallclock
@@ -42,4 +40,25 @@ export function computeRange(period = 'daily', dateStr, now = new Date()) {
     fromIso: new Date(startWallclock - TZ_OFFSET_MS).toISOString(),
     toIso: new Date(endWallclock - TZ_OFFSET_MS).toISOString(),
   }
+}
+
+export function computeRange(period = 'daily', dateStr, now = new Date()) {
+  return rangeFromAnchor(period, resolveAnchor(dateStr, now))
+}
+
+/**
+ * ขอบเขตของ "ช่วงก่อนหน้า" ตาม granularity (วันก่อน/เดือนก่อน/ปีก่อน) — ใช้เทียบ trend
+ * @param {'daily'|'monthly'|'yearly'} period
+ * @param {string=} dateStr วันอ้างอิงเดียวกับ computeRange
+ * @param {Date=} now
+ * @returns {{ fromIso: string, toIso: string }}
+ */
+export function computePreviousRange(period = 'daily', dateStr, now = new Date()) {
+  const a = resolveAnchor(dateStr, now)
+  let prevMs
+  if (period === 'daily') prevMs = Date.UTC(a.y, a.mo, a.d - 1)
+  else if (period === 'monthly') prevMs = Date.UTC(a.y, a.mo - 1, 1)
+  else prevMs = Date.UTC(a.y - 1, 0, 1)
+  const t = new Date(prevMs)
+  return rangeFromAnchor(period, { y: t.getUTCFullYear(), mo: t.getUTCMonth(), d: t.getUTCDate() })
 }

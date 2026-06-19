@@ -13,6 +13,9 @@ const PERIODS = [
   { key: 'yearly', label: 'รายปี' },
 ]
 
+// แสดงรายการทีละ 10 แล้วค่อยกด "แสดงเพิ่ม" — กัน render DOM ทีเดียวเยอะตอนช่วงรายปี
+const PAGE_SIZE = 10
+
 // ───────── ตัวช่วยเลื่อนช่วงเวลา (วันอ้างอิงตามปฏิทินไทย Asia/Bangkok) ─────────
 const TZ_OFFSET_MS = 7 * 60 * 60 * 1000
 
@@ -65,7 +68,31 @@ function summarize(slips) {
   return { totalIncome, totalExpense, net: totalIncome - totalExpense, count: slips.length }
 }
 
-// จัดกลุ่มรายจ่ายตามหมวดหมู่ (เรียงมาก→น้อย) + สัดส่วนของแต่ละหมวด — ดูว่าเงินหมดไปกับอะไรเยอะสุด
+// คีย์แทน "ไม่ระบุหมวด" — แยกออกจากหมวด 'อื่นๆ' ที่ผู้ใช้ติดป้ายเอง (ตรงกับ backend report.js)
+const NO_CATEGORY = '__none__'
+
+// สี + อิโมจิประจำหมวด — ให้แต่ละหมวดสีคงที่ สแกนด้วยตาได้เร็วทั้งในโดนัทและแถบ
+const CATEGORY_META = {
+  'ค่าของ': { emoji: '🛍️', color: '#3b82f6' },
+  'ค่าส่ง': { emoji: '🚚', color: '#f59e0b' },
+  'ค่าอาหาร': { emoji: '🍜', color: '#ef4444' },
+  'ค่าน้ำค่าไฟ': { emoji: '💡', color: '#eab308' },
+  'เงินเดือน': { emoji: '💼', color: '#8b5cf6' },
+  'อื่นๆ': { emoji: '📦', color: '#64748b' },
+}
+const NO_CATEGORY_META = { emoji: '❓', color: '#94a3b8' }
+// เผื่อหมวดที่ผู้ใช้พิมพ์เองนอกรายการมาตรฐาน — วนสีจากชุดนี้
+const FALLBACK_COLORS = ['#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16']
+
+// key สำหรับเทียบ/กรอง (null → '__none__') ให้ตรงกับ backend
+const categoryKey = category => (category == null ? NO_CATEGORY : category)
+const categoryLabel = category => (category == null ? 'ไม่ระบุหมวด' : category)
+function categoryMeta(category, idx = 0) {
+  if (category == null) return NO_CATEGORY_META
+  return CATEGORY_META[category] || { emoji: '🏷️', color: FALLBACK_COLORS[idx % FALLBACK_COLORS.length] }
+}
+
+// จัดกลุ่มรายจ่ายตามหมวดหมู่ (เรียงมาก→น้อย) + จำนวนรายการ/สัดส่วน — ดูว่าเงินหมดไปกับอะไรเยอะสุด
 function expenseByCategory(slips) {
   const map = new Map()
   let total = 0
@@ -73,17 +100,21 @@ function expenseByCategory(slips) {
     if (s.type !== 'expense') continue
     const amount = Number(s.amount) || 0
     if (amount <= 0) continue
-    const key = s.category || 'อื่นๆ'
-    map.set(key, (map.get(key) || 0) + amount)
+    const key = s.category || null // null = ไม่ระบุหมวด (แยกจาก 'อื่นๆ')
+    const cur = map.get(key) || { amount: 0, count: 0 }
+    cur.amount += amount
+    cur.count += 1
+    map.set(key, cur)
     total += amount
   }
   const rows = [...map.entries()]
-    .map(([category, amount]) => ({ category, amount, pct: total ? amount / total : 0 }))
+    .map(([category, v]) => ({ category, amount: v.amount, count: v.count, pct: total ? v.amount / total : 0 }))
     .sort((a, b) => b.amount - a.amount)
   return { total, rows }
 }
 
 const fmtBaht = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })
+const fmtBahtShort = n => Number(n || 0).toLocaleString('th-TH')
 
 export default function Report() {
   const navigate = useNavigate()
@@ -96,6 +127,8 @@ export default function Report() {
   const [sending, setSending] = useState(false)
   const [selectedSlip, setSelectedSlip] = useState(null)
   const [sessionExpired, setSessionExpired] = useState(false)
+  const [activeKey, setActiveKey] = useState(null) // หมวดที่กำลังกรองดูรายการ (null = ไม่กรอง)
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE) // จำนวนรายการที่แสดง (กด "แสดงเพิ่ม" เพิ่มทีละ PAGE_SIZE)
 
   // อัปเดต state หลังแก้ไขสลิปสำเร็จ — รายการในลิสต์ + ยอดรวม + modal ที่เปิดอยู่
   function handleSaved(updated) {
@@ -118,8 +151,14 @@ export default function Report() {
   }
 
   useEffect(() => {
+    setActiveKey(null) // เปลี่ยนช่วงเวลา = ล้างตัวกรองหมวด (ข้อมูลชุดใหม่)
     fetchReport()
   }, [period, anchor])
+
+  // เปลี่ยนตัวกรองหมวด (หรือโหลดข้อมูลใหม่) = ลิสต์เปลี่ยน → ย้อนกลับไปแสดงหน้าแรก
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE)
+  }, [activeKey, data])
 
   const atPresent = isAtPresent(anchor, period)
   const goPrev = () => setAnchor(a => stepAnchor(a, period, -1))
@@ -145,12 +184,20 @@ export default function Report() {
     if (!data) return
     setSending(true)
     try {
+      // หมวดจ่ายเด่นสุด 3 อันดับ — ให้ข้อความสรุปบอกได้ว่าเงินหมดไปกับอะไร ไม่ใช่แค่ยอดรวม
+      const { rows } = expenseByCategory(data.slips || [])
+      const topExpense = rows
+        .slice(0, 3)
+        .map(r => `  • ${categoryMeta(r.category).emoji} ${categoryLabel(r.category)}: ${fmtBaht(r.amount)} บาท`)
+        .join('\n')
+
       const text =
         `📊 สรุปยอด ${anchorLabel(anchor, period)}\n` +
         `รายรับ: ${fmtBaht(data.totalIncome)} บาท\n` +
         `รายจ่าย: ${fmtBaht(data.totalExpense)} บาท\n` +
         `คงเหลือ: ${fmtBaht(data.net)} บาท\n` +
-        `จำนวน: ${data.count || 0} รายการ`
+        `จำนวน: ${data.count || 0} รายการ` +
+        (topExpense ? `\n\nรายจ่ายเด่น:\n${topExpense}` : '')
       await liff.shareTargetPicker([{ type: 'text', text }])
     } catch {
       // user cancelled
@@ -247,19 +294,43 @@ export default function Report() {
           </div>
         </section>
 
-        {/* รายจ่ายตามหมวดหมู่ — เห็นว่าเงินหมดไปกับอะไรเยอะสุด */}
+        {/* รายจ่ายตามหมวดหมู่ — เห็นว่าเงินหมดไปกับอะไรเยอะสุด + แตะเพื่อกรองรายการ */}
         {!loading && data?.slips?.length > 0 && (
-          <CategoryBreakdown slips={data.slips} />
+          <CategoryBreakdown
+            slips={data.slips}
+            prevByCategory={data.prevExpenseByCategory}
+            activeKey={activeKey}
+            onSelect={setActiveKey}
+          />
         )}
 
         {/* Slip list */}
-        {!loading && data?.slips?.length > 0 && (
+        {!loading && data?.slips?.length > 0 && (() => {
+          const matchedSlips = activeKey
+            ? data.slips.filter(s => s.type === 'expense' && categoryKey(s.category) === activeKey)
+            : data.slips
+          const visibleSlips = matchedSlips.slice(0, visibleCount)
+          const remaining = matchedSlips.length - visibleSlips.length
+          return (
           <section className="mt-6 rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
-            <div className="px-5 pt-4 pb-2">
-              <p className="text-xs font-semibold tracking-wide text-muted-foreground">รายการล่าสุด</p>
+            <div className="px-5 pt-4 pb-2 flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold tracking-wide text-muted-foreground">
+                {activeKey ? 'รายการในหมวด' : 'รายการทั้งหมด'}
+              </p>
+              {activeKey && (
+                <button
+                  type="button"
+                  onClick={() => setActiveKey(null)}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-primary"
+                >
+                  {categoryMeta(activeKey === NO_CATEGORY ? null : activeKey).emoji}{' '}
+                  {categoryLabel(activeKey === NO_CATEGORY ? null : activeKey)}
+                  <X className="size-3.5" />
+                </button>
+              )}
             </div>
             <div className="divide-y divide-border">
-              {data.slips.map((slip, i) => {
+              {visibleSlips.map((slip, i) => {
                 const isExpense = slip.type === 'expense'
                 const sub = slip.category || slip.note || slip.bank_name || '-'
                 const dateText = slip.transaction_at
@@ -287,8 +358,18 @@ export default function Report() {
                 )
               })}
             </div>
+            {remaining > 0 && (
+              <button
+                type="button"
+                onClick={() => setVisibleCount(c => c + PAGE_SIZE)}
+                className="w-full px-5 py-3 text-sm font-medium text-primary border-t border-border active:bg-accent transition-colors"
+              >
+                แสดงเพิ่ม (เหลืออีก {remaining})
+              </button>
+            )}
           </section>
-        )}
+          )
+        })()}
 
         {!loading && data?.slips?.length === 0 && (
           <section className="mt-6 rounded-2xl border border-border bg-card p-8 shadow-sm text-center">
@@ -326,7 +407,59 @@ export default function Report() {
   )
 }
 
-function CategoryBreakdown({ slips }) {
+// โดนัทสัดส่วนรายจ่าย — วาดด้วย SVG ล้วน (ไม่พึ่งไลบรารี) ใช้ stroke-dasharray ต่อ segment
+function Donut({ rows, total, size = 104, stroke = 16 }) {
+  const r = (size - stroke) / 2
+  const circ = 2 * Math.PI * r
+  let acc = 0
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="currentColor" strokeWidth={stroke} className="text-muted" />
+          {rows.map((row, i) => {
+            const len = total ? (row.amount / total) * circ : 0
+            const seg = (
+              <circle
+                key={categoryKey(row.category)}
+                cx={size / 2}
+                cy={size / 2}
+                r={r}
+                fill="none"
+                stroke={categoryMeta(row.category, i).color}
+                strokeWidth={stroke}
+                strokeDasharray={`${len} ${circ - len}`}
+                strokeDashoffset={-acc}
+              />
+            )
+            acc += len
+            return seg
+          })}
+        </g>
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-[10px] text-muted-foreground leading-none">รายจ่าย</span>
+        <span className="text-sm font-bold leading-tight">{fmtBahtShort(total)}</span>
+      </div>
+    </div>
+  )
+}
+
+// ลูกศรเทียบช่วงก่อนหน้า — รายจ่าย: เพิ่ม = แดง (จ่ายมากขึ้น), ลด = เขียว
+function Trend({ amount, prevAmount }) {
+  if (prevAmount == null) return null // ไม่มีข้อมูลช่วงก่อน → ไม่โชว์
+  if (prevAmount <= 0) return <span className="text-[10px] text-amber-600 font-medium">ใหม่</span>
+  const delta = (amount - prevAmount) / prevAmount
+  if (Math.abs(delta) < 0.005) return <span className="text-[10px] text-muted-foreground">—</span>
+  const up = delta > 0
+  return (
+    <span className={`text-[10px] font-semibold ${up ? 'text-red-600' : 'text-green-600'}`}>
+      {up ? '▲' : '▼'} {Math.abs(Math.round(delta * 100))}%
+    </span>
+  )
+}
+
+function CategoryBreakdown({ slips, prevByCategory = {}, activeKey, onSelect }) {
   const { total, rows } = expenseByCategory(slips)
   if (!rows.length) return null // ไม่มีรายจ่ายในช่วงนี้ → ไม่ต้องแสดง
 
@@ -334,24 +467,52 @@ function CategoryBreakdown({ slips }) {
     <section className="mt-6 rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
       <div className="px-5 pt-4 pb-3 flex items-baseline justify-between">
         <p className="text-xs font-semibold tracking-wide text-muted-foreground">รายจ่ายตามหมวดหมู่</p>
-        <p className="text-xs text-muted-foreground">รวม {fmtBaht(total)} บาท</p>
+        <p className="text-xs text-muted-foreground">แตะหมวดเพื่อดูรายการ</p>
       </div>
-      <div className="px-5 pb-4 space-y-3">
-        {rows.map(r => (
-          <div key={r.category}>
-            <div className="flex justify-between items-baseline gap-2 text-sm">
-              <span className="font-medium truncate">{r.category}</span>
-              <span className="shrink-0">
-                <span className="font-semibold text-red-600">{Number(r.amount).toLocaleString('th-TH')} ฿</span>
-                <span className="text-xs text-muted-foreground ml-1.5">{Math.round(r.pct * 100)}%</span>
-              </span>
-            </div>
-            <div className="mt-1.5 h-2 rounded-full bg-muted overflow-hidden">
-              {/* อย่างน้อย 2% เพื่อให้หมวดที่ยอดน้อยมากยังเห็นแถบ */}
-              <div className="h-full rounded-full bg-red-500" style={{ width: `${Math.max(r.pct * 100, 2)}%` }} />
-            </div>
-          </div>
-        ))}
+
+      <div className="px-5 pb-2 flex justify-center">
+        <Donut rows={rows} total={total} />
+      </div>
+
+      <div className="px-3 pb-3">
+        {rows.map((row, i) => {
+          const meta = categoryMeta(row.category, i)
+          const key = categoryKey(row.category)
+          const active = activeKey === key
+          const prevAmount = prevByCategory[key]
+          const avg = row.count ? row.amount / row.count : 0
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onSelect(active ? null : key)}
+              className={`w-full text-left rounded-xl px-2 py-2 transition-colors ${active ? 'bg-accent' : 'active:bg-accent'}`}
+            >
+              <div className="flex justify-between items-baseline gap-2 text-sm">
+                <span className="font-medium truncate flex items-center gap-1.5 min-w-0">
+                  <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: meta.color }} />
+                  <span className="shrink-0">{meta.emoji}</span>
+                  <span className="truncate">{categoryLabel(row.category)}</span>
+                </span>
+                <span className="shrink-0 font-semibold">{fmtBahtShort(row.amount)} ฿</span>
+              </div>
+              <div className="mt-0.5 flex justify-between items-baseline gap-2 pl-[18px]">
+                {/* จำนวน/เฉลี่ย โชว์เฉพาะตอนกดดูหมวดนั้น — ปกติให้ดูแค่ยอด/สัดส่วน */}
+                <span className="text-[11px] text-muted-foreground truncate">
+                  {active ? `${row.count} รายการ · เฉลี่ย ${fmtBahtShort(Math.round(avg))} ฿` : ''}
+                </span>
+                <span className="shrink-0 flex items-center gap-2">
+                  <Trend amount={row.amount} prevAmount={prevAmount} />
+                  <span className="text-[11px] text-muted-foreground tabular-nums">{Math.round(row.pct * 100)}%</span>
+                </span>
+              </div>
+              <div className="mt-1.5 h-2 rounded-full bg-muted overflow-hidden">
+                {/* อย่างน้อย 2% เพื่อให้หมวดที่ยอดน้อยมากยังเห็นแถบ */}
+                <div className="h-full rounded-full" style={{ width: `${Math.max(row.pct * 100, 2)}%`, backgroundColor: meta.color }} />
+              </div>
+            </button>
+          )
+        })}
       </div>
     </section>
   )
@@ -396,6 +557,21 @@ function SlipModal({ slip, toast, onSaved, onDeleted, onClose }) {
   const [form, setForm] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  // รูปสลิปขอแบบ lazy — หน้ารายงานส่งมาแค่ has_image (ดู report.js) ค่อยขอ signed URL ตอนเปิดดู
+  const [imageUrl, setImageUrl] = useState(slip.image_url || null)
+  const [imageLoading, setImageLoading] = useState(false)
+
+  useEffect(() => {
+    if (imageUrl || !slip.has_image) return // มี URL แล้ว หรือรายการนี้ไม่มีรูป → ไม่ต้องขอ
+    let alive = true
+    setImageLoading(true)
+    apiGet(`/api/slip/${slip.id}/image`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (alive && j?.url) setImageUrl(j.url) })
+      .catch(() => {})
+      .finally(() => { if (alive) setImageLoading(false) })
+    return () => { alive = false }
+  }, [slip.id])
 
   function startEdit() {
     setForm({
@@ -572,13 +748,15 @@ function SlipModal({ slip, toast, onSaved, onDeleted, onClose }) {
                 <DetailRow label="วันที่ทำรายการ" value={dateText} />
               </div>
 
-              {slip.image_url && (
+              {imageUrl ? (
                 <img
-                  src={slip.image_url}
+                  src={imageUrl}
                   alt="สลิป"
                   className="mt-4 w-full rounded-2xl object-contain max-h-[50vh] border border-border"
                 />
-              )}
+              ) : (slip.has_image && imageLoading) ? (
+                <div className="mt-4 w-full h-48 rounded-2xl border border-border bg-muted animate-pulse" />
+              ) : null}
             </>
           )}
         </div>
