@@ -177,21 +177,29 @@ export function retryDelayMs(err) {
 
 // เรียก Gemini — บังคับ JSON ด้วย responseSchema คืน "ข้อความ JSON ดิบ"
 // schema ส่งต่อ payload ได้ (อ่านสลิป vs อ่านโน้ต ใช้คนละ schema) ดีฟอลต์ = schema สลิป
-async function callGemini(model, { promptText, imageBase64, mimeType, schema = responseSchema }) {
+// อินพุตเป็นได้ทั้งรูป (imageBase64) หรือข้อความล้วน (userText) — โน้ตจากพิมพ์/พูดใช้ userText
+async function callGemini(model, { promptText, imageBase64, mimeType, userText, schema = responseSchema }) {
   const m = genAI.getGenerativeModel({
     model,
     generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: schema },
   })
-  const result = await m.generateContent([
-    { text: promptText },
-    { inlineData: { data: imageBase64, mimeType } },
-  ])
+  const parts = [{ text: promptText }]
+  if (imageBase64) parts.push({ inlineData: { data: imageBase64, mimeType } })
+  else if (userText) parts.push({ text: `ข้อความจริง: "${userText}"` })
+  const result = await m.generateContent(parts)
   return result.response.text()
 }
 
 // เรียก Groq (OpenAI-compatible chat completions + vision) คืน "ข้อความ JSON ดิบ"
 // groqHint บอกคีย์ JSON ที่ต้องการ (สลิป vs โน้ต ใช้คนละชุดคีย์) ดีฟอลต์ = คีย์สลิป
-async function callGroq(model, apiKey, { promptText, imageBase64, mimeType, groqHint = GROQ_JSON_HINT }) {
+async function callGroq(model, apiKey, { promptText, imageBase64, mimeType, userText, groqHint = GROQ_JSON_HINT }) {
+  // อินพุตรูป → ส่ง vision (text + image_url), อินพุตข้อความ → ส่ง text ล้วน (โน้ตพิมพ์/พูด)
+  const content = imageBase64
+    ? [
+        { type: 'text', text: promptText + groqHint },
+        { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+      ]
+    : promptText + groqHint + (userText ? `\n\nข้อความจริง: "${userText}"` : '')
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -199,15 +207,7 @@ async function callGroq(model, apiKey, { promptText, imageBase64, mimeType, groq
       model,
       temperature: 0,
       response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: promptText + groqHint },
-            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
-          ],
-        },
-      ],
+      messages: [{ role: 'user', content }],
     }),
   })
   if (!res.ok) {
@@ -339,6 +339,54 @@ export async function ocrNote(imageBuffer, mimeType = 'image/jpeg') {
     promptText: NOTE_PROMPT,
     imageBase64: imageBuffer.toString('base64'),
     mimeType,
+    schema: noteSchema,
+    groqHint: NOTE_GROQ_HINT,
+  })
+
+  const list = Array.isArray(raw?.items) ? raw.items : []
+  return list
+    .map((it) => ({
+      description: clean(it.description),
+      amount: toNumber(it.amount),
+      type: it.type === 'income' ? 'income' : 'expense',
+    }))
+    .filter((it) => it.amount != null && it.amount > 0)
+}
+
+// ───────────── แปลง "ข้อความ" (พิมพ์/พูดผ่านคีย์บอร์ด) → หลายรายการ ─────────────
+// ใช้ schema เดียวกับโน้ต แต่ป้อนเป็นข้อความล้วน — prompt ผ่านการทดสอบเลขคำไทย/เลขควบ/แยกรายการแล้ว
+const NOTE_TEXT_PROMPT = `คุณคือระบบแยก "รายการรับ-จ่าย" จากข้อความที่ผู้ใช้พิมพ์หรือพูดผ่านการบอกเสียง (ภาษาไทย)
+ข้อความอาจเป็นประโยคยาวก้อนเดียว ไม่มีวรรค ไม่มีเครื่องหมายวรรคตอน และตัวเลขอาจเขียนเป็นคำ
+อ่าน "ข้อความจริงที่ผู้ใช้ให้" แล้วแตกเป็นรายการ ตามกฎ:
+
+1. แต่ละรายการ:
+   - description = สิ่งที่จ่าย/รับ สั้น ๆ ตามที่พูด
+   - amount = จำนวนเงิน เป็นตัวเลขล้วนเสมอ ถ้าเขียนเป็นคำไทยให้แปลงเป็นเลข
+     (เจ็ดสิบ=70, สี่ร้อยหก=406, สองพัน=2000, สามหมื่น=30000)
+   - อ่าน "กลุ่มคำตัวเลขที่ติดกัน" เป็นจำนวนเดียว จนกว่าจะเจอคำที่ "ไม่ใช่ตัวเลข"
+     เลขควบแบบไทยห้อยหลักท้าย: ตัวเลขเดี่ยวที่ตามหน่วยใหญ่ทันที = หลักที่รองลงมา
+     เช่น เก้าพันสาม=9300, สี่หมื่นสอง=42000, พันหก=1600
+     ⚠️ อย่าหยุดอ่านกลางจำนวนแล้วตัดเลขท้ายเป็นรายการใหม่ (กลุ่มเลขติดกัน = จำนวนเดียว)
+   - type = "income" ถ้าเงินเข้า (ขาย/ได้/รับ/โบนัส/ฝากเข้า/เงินเดือน),
+            "expense" ถ้าเงินออก (จ่าย/ซื้อ/ค่า/ผ่อน...) — ไม่แน่ใจให้เดา "expense"
+
+2. ตัดรายการใหม่ "เฉพาะเมื่อ" เจอคำขึ้นต้นรายการหรือชื่อสิ่งของคั่น เช่น จ่าย/ซื้อ/ค่า/ได้/ขาย/รับ หรือชื่อของ
+   ⚠️ ถ้าไม่มีคำพวกนี้คั่น ห้ามตัดกลุ่มตัวเลขออกเป็นหลายรายการ
+   เช่น "น้ำยี่สิบ" กับ "ขนมสิบห้า" = คนละรายการ (มีชื่อของคั่น) แต่ "สองพันสี่" = รายการเดียว (ไม่มีคำคั่น)
+3. ถ้าหลายอย่างใช้เงินก้อนเดียว "รวม" กัน ให้เป็น 1 รายการ amount = ยอดรวมนั้น และข้ามยอดรวมที่ซ้ำ
+4. ถ้าระบุจำนวนหน่วย × ราคาต่อหน่วย ให้คิดเป็นยอดรวม = จำนวน × ราคา
+5. ข้ามคำที่ไม่ใช่จำนวนเงิน (เช่น เช้านี้/วันนี้/แล้วก็/เอ่อ/มั้ง)
+6. ถ้าข้อความไม่มีรายการเงินเลย ให้คืน items เป็น []
+7. ใช้เฉพาะข้อมูลจาก "ข้อความจริง" ที่ส่งให้เท่านั้น ห้ามนำตัวอย่างในกฎมาตอบ`
+
+/**
+ * แปลงข้อความที่ผู้ใช้พิมพ์/พูด เป็นรายการธุรกรรมหลายชิ้น (หมุน backend อัตโนมัติเหมือน ocrNote)
+ * @returns {{ description:string|null, amount:number, type:'income'|'expense' }[]}
+ */
+export async function parseNoteText(text) {
+  const raw = await generateWithFallback({
+    promptText: NOTE_TEXT_PROMPT,
+    userText: text,
     schema: noteSchema,
     groqHint: NOTE_GROQ_HINT,
   })

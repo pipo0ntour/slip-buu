@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react'
-import { X, Camera, ImagePlus, Trash2, Plus } from 'lucide-react'
+import { X, Camera, ImagePlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { apiPostForm, apiPostJson } from '@/lib/api'
+import ItemsReview, { ItemsReviewFooter, validItemsOf } from '@/components/ItemsReview'
 
 // ถ่ายรูปโน้ตที่จดเอง → AI แตกเป็นรายการ → ทวน/แก้ → บันทึกทีเดียวหลายรายการ
 // phase: 'capture' (เลือกรูป) → 'scanning' (กำลังอ่าน) → 'review' (ทวน/แก้)
@@ -52,17 +53,9 @@ export default function NoteScan({ toast, onSaved, onClose }) {
     if (file) scan(file)
   }
 
-  const updateItem = (i, patch) => setItems(prev => prev.map((it, idx) => (idx === i ? { ...it, ...patch } : it)))
-  const removeItem = (i) => setItems(prev => prev.filter((_, idx) => idx !== i))
-  const addItem = () => setItems(prev => [...prev, { description: '', amount: '', type: 'expense' }])
-
-  const validItems = items.filter(it => Number(it.amount) > 0)
-  const canSave = validItems.length > 0 && !saving
-  // ยอดสุทธิ: รายรับบวก รายจ่ายลบ
-  const net = validItems.reduce((s, it) => s + Number(it.amount) * (it.type === 'expense' ? -1 : 1), 0)
-
   async function save() {
-    if (!canSave) return
+    const validItems = validItemsOf(items)
+    if (!validItems.length || saving) return
     setSaving(true)
     try {
       const payload = {
@@ -141,90 +134,11 @@ export default function NoteScan({ toast, onSaved, onClose }) {
             </div>
           )}
 
-          {phase === 'review' && (
-            <div className="space-y-3">
-              <p className="text-xs text-muted-foreground">ทวน/แก้รายการ แล้วกดบันทึก ({validItems.length} รายการ)</p>
-              {items.map((it, i) => {
-                const isExpense = it.type === 'expense'
-                return (
-                  <div key={i} className="rounded-2xl border border-border p-3 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <input
-                        value={it.description}
-                        onChange={e => updateItem(i, { description: e.target.value })}
-                        placeholder="รายละเอียด (เช่น ค่าข้าว)"
-                        className="flex-1 h-10 rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeItem(i)}
-                        className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center shrink-0 text-muted-foreground"
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex rounded-lg overflow-hidden border border-border shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => updateItem(i, { type: 'income' })}
-                          className={`h-10 px-3 text-sm font-semibold ${!isExpense ? 'bg-green-600 text-white' : 'bg-card text-muted-foreground'}`}
-                        >
-                          รับ
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateItem(i, { type: 'expense' })}
-                          className={`h-10 px-3 text-sm font-semibold ${isExpense ? 'bg-red-600 text-white' : 'bg-card text-muted-foreground'}`}
-                        >
-                          จ่าย
-                        </button>
-                      </div>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        value={it.amount}
-                        onChange={e => updateItem(i, { amount: e.target.value })}
-                        placeholder="0.00"
-                        className="flex-1 h-10 rounded-lg border border-input bg-background px-3 text-right text-base font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      />
-                      <span className="text-sm text-muted-foreground shrink-0">บาท</span>
-                    </div>
-                  </div>
-                )
-              })}
-
-              <button
-                type="button"
-                onClick={addItem}
-                className="w-full h-11 rounded-xl border border-dashed border-border flex items-center justify-center gap-2 text-sm font-medium text-muted-foreground"
-              >
-                <Plus className="size-4" /> เพิ่มรายการ
-              </button>
-            </div>
-          )}
+          {phase === 'review' && <ItemsReview items={items} setItems={setItems} />}
         </div>
 
         {/* Footer */}
-        {phase === 'review' && (
-          <div className="border-t border-border px-5 py-3 pb-6">
-            {net !== 0 && (
-              <p className="text-sm text-center mb-2">
-                ยอดสุทธิ{' '}
-                <span className={`font-bold ${net < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  {net.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
-                </span>
-              </p>
-            )}
-            <Button size="xl" className="w-full rounded-2xl" onClick={save} disabled={!canSave}>
-              {saving ? (
-                <><span className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" /> กำลังบันทึก...</>
-              ) : (
-                `บันทึก ${validItems.length} รายการ`
-              )}
-            </Button>
-          </div>
-        )}
+        {phase === 'review' && <ItemsReviewFooter items={items} saving={saving} onSave={save} />}
 
         <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={pick} className="hidden" />
         <input ref={galleryRef} type="file" accept="image/*" onChange={pick} className="hidden" />

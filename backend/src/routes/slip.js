@@ -1,6 +1,6 @@
 import express from 'express'
 import multer from 'multer'
-import { ocrSlip, ocrNote } from '../services/gemini.js'
+import { ocrSlip, ocrNote, parseNoteText } from '../services/gemini.js'
 import { compressImage, OCR_PRESET, STORAGE_PRESET } from '../services/image.js'
 import { hashBuffer, checkByHash, checkByRefNo } from '../services/duplicate.js'
 import { supabase } from '../services/supabase.js'
@@ -421,6 +421,34 @@ router.post('/note-scan', rateLimitByUser, upload.single('image'), async (req, r
     res.json({ status: 'success', items, message: items.length ? undefined : 'อ่านไม่พบรายการเงินในโน้ตนี้' })
   } catch (err) {
     console.error('Note scan error:', err)
+    res.status(500).json({ status: 'error', message: 'เกิดข้อผิดพลาด กรุณาลองใหม่' })
+  }
+})
+
+// POST /api/slip/note-parse-text — แปลงข้อความ (พิมพ์/พูดผ่านคีย์บอร์ด) เป็นรายการ (ยังไม่บันทึก — ให้ผู้ใช้ทวน/แก้ก่อน)
+router.post('/note-parse-text', rateLimitByUser, async (req, res) => {
+  try {
+    const text = (req.body?.text ?? '').toString().trim()
+    if (!text) return res.status(400).json({ status: 'error', message: 'กรุณาพิมพ์หรือพูดรายการ' })
+    if (text.length > 1000) return res.status(400).json({ status: 'error', message: 'ข้อความยาวเกินไป (สูงสุด 1000 ตัวอักษร)' })
+
+    let items
+    try {
+      items = await parseNoteText(text)
+    } catch (err) {
+      console.error('Note parse-text error:', err.message)
+      // แยกเคสโควต้าเต็ม (ให้รอ) ออกจากประมวลผลพังจริง
+      const quota = /429|quota|too many requests/i.test(err.message || '')
+      return res.status(quota ? 429 : 502).json({
+        status: 'error',
+        message: quota ? 'คิวประมวลผลเต็มชั่วคราว กรุณารอสักครู่แล้วลองใหม่' : 'แปลงข้อความไม่สำเร็จ กรุณาลองใหม่',
+      })
+    }
+
+    // ไม่พบรายการ — ตอบ success + items ว่าง ให้ฝั่ง client แจ้งผู้ใช้เพิ่มเอง
+    res.json({ status: 'success', items, message: items.length ? undefined : 'ไม่พบรายการเงินในข้อความนี้' })
+  } catch (err) {
+    console.error('Note parse-text route error:', err)
     res.status(500).json({ status: 'error', message: 'เกิดข้อผิดพลาด กรุณาลองใหม่' })
   }
 })

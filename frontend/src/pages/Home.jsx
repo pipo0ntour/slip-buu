@@ -4,7 +4,7 @@ import { Camera, ImagePlus, BarChart3, X, CheckCircle, AlertTriangle, XCircle, P
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/context/ToastContext'
 import { apiPostForm } from '@/lib/api'
-import TransactionForm from '@/components/TransactionForm'
+import AddSheet from '@/components/AddSheet'
 import NoteScan from '@/components/NoteScan'
 
 const MAX_FILES = 10
@@ -262,7 +262,7 @@ export default function Home({ profile }) {
             <span className="w-11 h-11 rounded-xl bg-primary/[0.12] flex items-center justify-center">
               <Plus className="size-5 text-primary" />
             </span>
-            <span className="text-sm font-semibold text-primary">เพิ่มรายการเอง</span>
+            <span className="text-sm font-semibold text-primary">เพิ่มรายการ</span>
           </button>
         </div>
 
@@ -283,9 +283,10 @@ export default function Home({ profile }) {
       )}
 
       {showManual && (
-        <TransactionForm
+        <AddSheet
           toast={toast}
-          onSaved={handleManualSaved}
+          onManualSaved={handleManualSaved}
+          onMultiSaved={handleNoteSaved}
           onClose={() => setShowManual(false)}
         />
       )}
