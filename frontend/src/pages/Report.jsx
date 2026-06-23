@@ -4,6 +4,8 @@ import { ChevronDown, ChevronLeft, ChevronRight, Send, X, Pencil, Trash2 } from 
 import { Button } from '@/components/ui/button'
 import { useToast } from '../context/ToastContext'
 import { apiGet, apiPatchJson, apiDelete } from '@/lib/api'
+import iconExcel from '@/assets/icon-excel.png'
+import iconPdf from '@/assets/icon-pdf.png'
 import { CATEGORIES } from '@/components/TransactionForm'
 import liff from '@line/liff'
 
@@ -221,80 +223,86 @@ export default function Report() {
           <SessionExpiredCard onRetry={fetchReport} />
         ) : (
         <>
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold">สรุปยอด</h2>
-            <div className="relative">
-              <button
-                type="button"
-                className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium"
-                onClick={() => setShowDropdown(v => !v)}
-              >
-                {periodLabel}
-                <ChevronDown className="size-4 text-muted-foreground" />
+        {/* แถบควบคุม: เลือก granularity (ซ้าย) + ปุ่มส่งออก (ขวา) — เห็นตลอดทั้งสองแท็บ */}
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="relative">
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium"
+              onClick={() => setShowDropdown(v => !v)}
+            >
+              {periodLabel}
+              <ChevronDown className="size-4 text-muted-foreground" />
+            </button>
+            {showDropdown && (
+              <>
+                {/* ชั้นโปร่งใสคลุมทั้งจอ — แตะที่ไหนก็ได้นอกเมนูเพื่อปิด */}
+                <div className="fixed inset-0 z-10" onClick={() => setShowDropdown(false)} />
+                <div className="absolute left-0 top-full mt-1 z-20 rounded-xl border border-border bg-card shadow-md overflow-hidden min-w-[120px]">
+                  {PERIODS.map(p => (
+                    <button
+                      key={p.key}
+                      className={`block w-full text-left px-4 py-2.5 text-sm hover:bg-accent ${period === p.key ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}
+                      onClick={() => { setPeriod(p.key); setShowDropdown(false) }}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <ExportMenu
+            data={data}
+            periodLabel={periodLabel}
+            rangeLabel={anchorLabel(anchor, period)}
+            period={period}
+            disabled={loading || !data?.slips?.length}
+            toast={toast}
+          />
+        </div>
+
+        {/* แถบเลื่อนช่วงเวลา — ดูย้อนหลังได้ (◀ ▶ เลื่อนตาม granularity ที่เลือก) */}
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <button
+            type="button"
+            onClick={goPrev}
+            aria-label="ช่วงก่อนหน้า"
+            className="w-10 h-10 rounded-xl border border-border bg-card flex items-center justify-center shrink-0 active:bg-accent transition-colors"
+          >
+            <ChevronLeft className="size-5" />
+          </button>
+          <div className="text-center min-w-0">
+            <p className="text-base font-semibold truncate">{anchorLabel(anchor, period)}</p>
+            {!atPresent && (
+              <button type="button" onClick={goToday} className="text-xs text-primary mt-0.5">
+                กลับช่วงปัจจุบัน
               </button>
-              {showDropdown && (
-                <>
-                  {/* ชั้นโปร่งใสคลุมทั้งจอ — แตะที่ไหนก็ได้นอกเมนูเพื่อปิด */}
-                  <div className="fixed inset-0 z-10" onClick={() => setShowDropdown(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-20 rounded-xl border border-border bg-card shadow-md overflow-hidden min-w-[120px]">
-                    {PERIODS.map(p => (
-                      <button
-                        key={p.key}
-                        className={`block w-full text-left px-4 py-2.5 text-sm hover:bg-accent ${period === p.key ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}
-                        onClick={() => { setPeriod(p.key); setShowDropdown(false) }}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
+            )}
           </div>
+          <button
+            type="button"
+            onClick={goNext}
+            disabled={atPresent}
+            aria-label="ช่วงถัดไป"
+            className="w-10 h-10 rounded-xl border border-border bg-card flex items-center justify-center shrink-0 active:bg-accent transition-colors disabled:opacity-30 disabled:active:bg-card"
+          >
+            <ChevronRight className="size-5" />
+          </button>
+        </div>
 
-          {/* แถบเลื่อนช่วงเวลา — ดูย้อนหลังได้ (◀ ▶ เลื่อนตาม granularity ที่เลือก) */}
-          <div className="flex items-center justify-between gap-2 mb-4">
-            <button
-              type="button"
-              onClick={goPrev}
-              aria-label="ช่วงก่อนหน้า"
-              className="w-10 h-10 rounded-xl border border-border bg-card flex items-center justify-center shrink-0 active:bg-accent transition-colors"
-            >
-              <ChevronLeft className="size-5" />
-            </button>
-            <div className="text-center min-w-0">
-              <p className="text-base font-semibold truncate">{anchorLabel(anchor, period)}</p>
-              {!atPresent && (
-                <button type="button" onClick={goToday} className="text-xs text-primary mt-0.5">
-                  กลับช่วงปัจจุบัน
-                </button>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={goNext}
-              disabled={atPresent}
-              aria-label="ช่วงถัดไป"
-              className="w-10 h-10 rounded-xl border border-border bg-card flex items-center justify-center shrink-0 active:bg-accent transition-colors disabled:opacity-30 disabled:active:bg-card"
-            >
-              <ChevronRight className="size-5" />
-            </button>
-          </div>
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard label="รายรับ (บาท)" tone="income" value={loading ? '...' : fmtBaht(data?.totalIncome)} />
+          <StatCard label="รายจ่าย (บาท)" tone="expense" value={loading ? '...' : fmtBaht(data?.totalExpense)} />
+          <StatCard
+            label="คงเหลือ (บาท)"
+            tone={Number(data?.net ?? 0) < 0 ? 'expense' : 'default'}
+            value={loading ? '...' : fmtBaht(data?.net)}
+          />
+          <StatCard label="จำนวนรายการ" value={loading ? '...' : String(data?.count ?? 0)} />
+        </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <StatCard label="รายรับ (บาท)" tone="income" value={loading ? '...' : fmtBaht(data?.totalIncome)} />
-            <StatCard label="รายจ่าย (บาท)" tone="expense" value={loading ? '...' : fmtBaht(data?.totalExpense)} />
-            <StatCard
-              label="คงเหลือ (บาท)"
-              tone={Number(data?.net ?? 0) < 0 ? 'expense' : 'default'}
-              value={loading ? '...' : fmtBaht(data?.net)}
-            />
-            <StatCard label="จำนวนรายการ" value={loading ? '...' : String(data?.count ?? 0)} />
-          </div>
-        </section>
-
-        {/* รายจ่ายตามหมวดหมู่ — เห็นว่าเงินหมดไปกับอะไรเยอะสุด + แตะเพื่อกรองรายการ */}
+        {/* รายจ่ายตามหมวดหมู่ — เห็นว่าเงินหมดไปกับอะไรเยอะสุด + แตะเพื่อกรองรายการด้านล่าง */}
         {!loading && data?.slips?.length > 0 && (
           <CategoryBreakdown
             slips={data.slips}
@@ -515,6 +523,76 @@ function CategoryBreakdown({ slips, prevByCategory = {}, activeKey, onSelect }) 
         })}
       </div>
     </section>
+  )
+}
+
+// ปุ่มส่งออกแบบไอคอนเล็ก — Excel (CSV) / PDF กดแล้วสร้างไฟล์จากข้อมูลช่วงที่โหลดมาแล้ว (ไม่ยิง API ซ้ำ)
+function ExportMenu({ data, periodLabel, rangeLabel, period, disabled, toast }) {
+  const [busy, setBusy] = useState(null) // 'csv' | 'pdf' | null = ชนิดที่กำลังสร้าง (โชว์ spinner ปุ่มนั้น)
+
+  async function run(kind) {
+    if (busy || !data?.slips?.length) return
+    setBusy(kind)
+    try {
+      const payload = {
+        slips: data.slips,
+        totalIncome: data.totalIncome,
+        totalExpense: data.totalExpense,
+        net: data.net,
+        count: data.count,
+        periodLabel,
+        rangeLabel,
+        period,
+      }
+      // โหลดโมดูล export แบบ lazy — jsPDF + ฟอนต์ไทยก้อนใหญ่ จะดาวน์โหลดเฉพาะตอนกดส่งออกจริง
+      // (ไม่ถ่วงโหลดหน้าแรกของแอปบนมือถือ)
+      const { exportCsv, exportPdf } = await import('@/lib/export')
+      if (kind === 'csv') exportCsv(payload)
+      else exportPdf(payload)
+      toast?.({ message: `ส่งออก ${kind.toUpperCase()} แล้ว`, type: 'success' })
+    } catch {
+      toast?.({ message: 'ส่งออกไม่สำเร็จ กรุณาลองใหม่', type: 'error' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <ExportIconButton
+        label="ส่งออก Excel (CSV)"
+        onClick={() => run('csv')}
+        disabled={disabled || !!busy}
+        loading={busy === 'csv'}
+        icon={<img src={iconExcel} alt="" className="size-6 object-contain" />}
+      />
+      <ExportIconButton
+        label="ส่งออก PDF"
+        onClick={() => run('pdf')}
+        disabled={disabled || !!busy}
+        loading={busy === 'pdf'}
+        icon={<img src={iconPdf} alt="" className="size-6 object-contain" />}
+      />
+    </div>
+  )
+}
+
+function ExportIconButton({ label, onClick, disabled, loading, icon }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className="w-10 h-10 rounded-xl border border-border bg-card flex items-center justify-center active:bg-accent transition-colors disabled:opacity-40"
+    >
+      {loading ? (
+        <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      ) : (
+        icon
+      )}
+    </button>
   )
 }
 
