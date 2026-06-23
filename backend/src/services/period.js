@@ -13,7 +13,15 @@ const TZ_OFFSET_MS = 7 * 60 * 60 * 1000
 function resolveAnchor(dateStr, now) {
   const anchor = typeof dateStr === 'string' && dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/)
   if (anchor) {
-    return { y: Number(anchor[1]), mo: Number(anchor[2]) - 1, d: Number(anchor[3]) }
+    const y = Number(anchor[1])
+    const mo = Number(anchor[2]) - 1
+    const d = Number(anchor[3])
+    // regex \d{2} รับเดือน/วันนอกช่วงได้ (เช่น 2025-13-40) แล้ว Date.UTC จะ overflow ข้ามไปเอง
+    // กันด้วย round-trip: ถ้า y/mo/d ที่สร้างกลับมาไม่ตรงกับที่ parse = นอกช่วงจริง → ตกไปใช้ "วันนี้"
+    const probe = new Date(Date.UTC(y, mo, d))
+    if (probe.getUTCFullYear() === y && probe.getUTCMonth() === mo && probe.getUTCDate() === d) {
+      return { y, mo, d }
+    }
   }
   const nowBkk = new Date(now.getTime() + TZ_OFFSET_MS) // ฟิลด์ UTC ของตัวนี้ = เวลาไทยจริง
   return { y: nowBkk.getUTCFullYear(), mo: nowBkk.getUTCMonth(), d: nowBkk.getUTCDate() }
