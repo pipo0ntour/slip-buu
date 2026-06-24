@@ -203,37 +203,6 @@ export function ManualForm({ toast, onSaved, onClose }) {
   )
 }
 
-// ฟอร์มสร้างรายการธุรกรรมเอง (ไม่มีสลิป) — เปิดเป็น bottom sheet (chrome + ManualForm)
-export default function TransactionForm({ toast, onSaved, onClose }) {
-  return (
-    <div
-      className="fixed inset-0 z-40 bg-black/60 flex items-end justify-center animate-fade-in"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md bg-card rounded-t-3xl max-h-[90vh] flex flex-col animate-slide-up"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* ขีดจับ — บอกว่าเป็นแผ่นที่เลื่อนขึ้นมา ปิดได้ */}
-        <div className="mx-auto mt-3 h-1.5 w-10 rounded-full bg-muted shrink-0" />
-
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 px-5 pt-3 pb-3 border-b border-border">
-          <p className="font-bold text-lg">เพิ่มรายการเอง</p>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0"
-          >
-            <X className="size-4 text-muted-foreground" />
-          </button>
-        </div>
-
-        <ManualForm toast={toast} onSaved={onSaved} onClose={onClose} />
-      </div>
-    </div>
-  )
-}
-
 function Field({ label, value, onChange, type = 'text', placeholder }) {
   return (
     <label className="block">

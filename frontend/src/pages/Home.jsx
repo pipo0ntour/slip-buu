@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Camera, ImagePlus, BarChart3, X, CheckCircle, AlertTriangle, XCircle, Plus, NotebookPen } from 'lucide-react'
+import { Camera, ImagePlus, X, CheckCircle, AlertTriangle, XCircle, Plus, NotebookPen, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/context/ToastContext'
 import { apiPostForm } from '@/lib/api'
 import AddSheet from '@/components/AddSheet'
 import NoteScan from '@/components/NoteScan'
+import CartoonAvatar from '@/components/CartoonAvatar'
+import { loadAvatarFace } from '@/lib/avatarStore'
 
 const MAX_FILES = 10
 
@@ -21,6 +23,7 @@ export default function Home({ profile }) {
   const [results, setResults] = useState(null)
   const [showManual, setShowManual] = useState(false)
   const [showNote, setShowNote] = useState(false) // ฟอร์มถ่ายโน้ต → สรุปรายการ
+  const [avatarFace] = useState(loadAvatarFace) // อวตารที่เก็บไว้ (โหลดตอน mount; จัดการในหน้า "ฉัน")
   const [previewUrl, setPreviewUrl] = useState(null) // รูปสลิปที่กดดูจากรายการผลลัพธ์
 
   function addFiles(fileList) {
@@ -132,13 +135,24 @@ export default function Home({ profile }) {
     <div className="min-h-screen bg-background text-foreground pb-24">
       <div className="mx-auto max-w-md px-5 pt-6">
 
-        {/* Header */}
+        {/* Header — แตะรูปโปรไฟล์ไปหน้า "ฉัน" (จัดการอวตาร/บุคลิก/สถิติ ที่นั่น) */}
         <header className="flex items-center gap-3 mb-6">
-          {profile?.pictureUrl ? (
-            <img src={profile.pictureUrl} className="h-12 w-12 rounded-full object-cover" alt="" />
-          ) : (
-            <div className="h-12 w-12 rounded-full bg-primary/10" />
-          )}
+          <button
+            type="button"
+            onClick={() => navigate('/me')}
+            className="relative h-12 w-12 shrink-0 rounded-full active:scale-95 transition-transform"
+            aria-label="ไปหน้าฉัน"
+          >
+            <CartoonAvatar
+              face={avatarFace}
+              fallbackUrl={profile?.pictureUrl}
+              className="h-12 w-12 rounded-full"
+            />
+            {/* จุดบอกใบ้ว่ากดเปลี่ยนเป็นการ์ตูนได้ */}
+            <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow ring-2 ring-background">
+              <Sparkles className="size-3" />
+            </span>
+          </button>
           <div>
             <h1 className="text-2xl font-bold leading-tight">
               {profile?.displayName || 'Slip-BUU'}
@@ -298,20 +312,6 @@ export default function Home({ profile }) {
           onClose={() => setShowNote(false)}
         />
       )}
-
-      {/* Bottom Bar */}
-      <div className="fixed bottom-0 inset-x-0 border-t border-border bg-background/95 backdrop-blur px-5 py-3">
-        <div className="mx-auto max-w-md">
-          <Button
-            variant="outline"
-            className="w-full h-12 rounded-2xl text-base font-semibold"
-            onClick={() => navigate('/report')}
-          >
-            <BarChart3 className="size-4" />
-            ดูรายงาน
-          </Button>
-        </div>
-      </div>
 
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden"
         onChange={e => { addFiles(e.target.files); e.target.value = '' }} />

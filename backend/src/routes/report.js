@@ -103,4 +103,39 @@ router.get('/', async (req, res) => {
   })
 })
 
+// สรุปยอด "ตลอดทั้งหมด" (ไม่จำกัดช่วงเวลา) — ใช้ในหน้าโปรไฟล์ ให้ต่างจากหน้ารายงานที่อิงช่วงเวลา
+// ดึงแค่ amount/type ทุกแถวที่สำเร็จของผู้ใช้ แล้วรวมในแอป (ปริมาณต่อผู้ใช้ไม่มากในแอปนี้)
+router.get('/summary', async (req, res) => {
+  const lineUserId = req.lineUser.userId
+
+  // DB เก่า (ก่อน migration 003) ยังไม่มีคอลัมน์ type → ถอยไปดึงแค่ amount แล้วตีเป็นรายรับทั้งหมด
+  let rows, error
+  for (const cols of ['amount, type', 'amount']) {
+    ;({ data: rows, error } = await supabase
+      .from('slips')
+      .select(cols)
+      .eq('line_user_id', lineUserId)
+      .eq('status', 'success'))
+    if (!error || !/column|could not find|schema cache/i.test(error.message)) break
+  }
+
+  if (error) return res.status(500).json({ error: 'Database error' })
+
+  let totalIncome = 0
+  let totalExpense = 0
+  for (const s of rows || []) {
+    const amount = Number(s.amount) || 0
+    if (amount <= 0) continue
+    if (s.type === 'expense') totalExpense += amount
+    else totalIncome += amount
+  }
+
+  res.json({
+    totalIncome,
+    totalExpense,
+    net: totalIncome - totalExpense,
+    count: (rows || []).length,
+  })
+})
+
 export default router
