@@ -1,11 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { rateLimitByUser } from '../src/services/rateLimit.js'
+import { rateLimitByUser, rateLimitReads, createRateLimit } from '../src/services/rateLimit.js'
 
-const MAX = 20 // ต้องตรงกับ MAX_PER_WINDOW ใน rateLimit.js
+const MAX = 20 // ต้องตรงกับลิมิตของ rateLimitByUser ใน rateLimit.js
 
-// จำลองหนึ่ง request ของ userId — คืนว่าผ่าน (next) หรือโดนบล็อก (429)
-function call(userId) {
+// จำลองหนึ่ง request ของ userId ผ่าน middleware ที่กำหนด — คืนว่าผ่าน (next) หรือโดนบล็อก (429)
+function callWith(mw, userId) {
   const req = { lineUser: userId === undefined ? undefined : { userId } }
   let statusCode = null
   let jsonBody = null
@@ -16,9 +16,12 @@ function call(userId) {
       return { json(b) { jsonBody = b } }
     },
   }
-  rateLimitByUser(req, res, () => { nexted = true })
+  mw(req, res, () => { nexted = true })
   return { allowed: nexted, statusCode, jsonBody }
 }
+
+// ดีฟอลต์ใช้ rateLimitByUser (ตัวเข้ม 20/นาที)
+const call = (userId) => callWith(rateLimitByUser, userId)
 
 test('rateLimit: อนุญาตครบ 20 req แรกในหน้าต่างเดียว แล้วบล็อก req ที่ 21+', () => {
   const u = `rl-burst-${Date.now()}`
@@ -54,4 +57,30 @@ test('rateLimit: ไม่มี userId (กันพลาด) → ปล่อ
     assert.equal(r.allowed, true)
     assert.equal(r.statusCode, null)
   }
+})
+
+test('rateLimitReads: ผ่อนกว่า — อนุญาต 60 req แรก แล้วบล็อก req ที่ 61', () => {
+  const u = `rl-read-${Date.now()}`
+  for (let i = 1; i <= 60; i++) {
+    assert.equal(callWith(rateLimitReads, u).allowed, true, `read req ที่ ${i} ต้องผ่าน`)
+  }
+  assert.equal(callWith(rateLimitReads, u).statusCode, 429, 'read req ที่ 61 ต้องถูกบล็อก')
+})
+
+test('rateLimit: แต่ละ limiter นับแยกถัง — ยิงตัวเขียนจนเต็มไม่กระทบตัวอ่าน', () => {
+  const u = `rl-split-${Date.now()}`
+  for (let i = 0; i < MAX + 5; i++) callWith(rateLimitByUser, u) // ทำให้ถังเขียน (20) เต็มของ user นี้
+  assert.equal(callWith(rateLimitByUser, u).statusCode, 429, 'ถังเขียนต้องเต็ม')
+  // ถังอ่านของ user เดียวกันต้องยังว่าง (Map แยกกัน)
+  assert.equal(callWith(rateLimitReads, u).allowed, true, 'ถังอ่านต้องยังผ่านได้')
+})
+
+test('createRateLimit: ปรับ max ได้ และแต่ละ instance มี Map ของตัวเอง', () => {
+  const lim = createRateLimit({ max: 2 })
+  const u = `rl-factory-${Date.now()}`
+  assert.equal(callWith(lim, u).allowed, true)
+  assert.equal(callWith(lim, u).allowed, true)
+  assert.equal(callWith(lim, u).statusCode, 429, 'เกิน max=2 ต้องบล็อก')
+  // instance ใหม่ = ถังใหม่ ไม่รับรู้ประวัติของ instance ก่อนหน้า
+  assert.equal(callWith(createRateLimit({ max: 2 }), u).allowed, true)
 })

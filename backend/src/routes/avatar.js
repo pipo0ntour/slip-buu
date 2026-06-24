@@ -1,13 +1,14 @@
 import express from 'express'
 import multer from 'multer'
 import { analyzeFace } from '../services/gemini.js'
-import { compressImage, OCR_PRESET } from '../services/image.js'
+import { compressImage, OCR_PRESET, imageFileFilter } from '../services/image.js'
 import { rateLimitByUser } from '../services/rateLimit.js'
 
 const router = express.Router()
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB เท่ากับ slip
+  fileFilter: imageFileFilter, // รับเฉพาะรูป (image/*)
 })
 
 /**
@@ -39,6 +40,15 @@ router.post('/analyze', rateLimitByUser, upload.single('image'), async (req, res
         : 'สร้างอวตารไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
     })
   }
+})
+
+// แปลง error จาก multer (เช่นไฟล์ใหญ่เกิน) เป็น JSON ข้อความไทย แทน HTML 500 ปริศนา
+router.use((err, _req, res, _next) => {
+  if (err?.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ status: 'error', message: 'ไฟล์ใหญ่เกิน 10MB กรุณาเลือกรูปที่เล็กกว่านี้' })
+  }
+  console.error('Avatar route error:', err)
+  res.status(500).json({ status: 'error', message: 'เกิดข้อผิดพลาด กรุณาลองใหม่' })
 })
 
 export default router

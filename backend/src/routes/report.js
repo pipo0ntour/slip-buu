@@ -2,6 +2,7 @@ import express from 'express'
 import { supabase } from '../services/supabase.js'
 import { computeRange, computePreviousRange } from '../services/period.js'
 import { storagePathOf } from '../services/storage.js'
+import { rateLimitReads } from '../services/rateLimit.js'
 
 const router = express.Router()
 
@@ -21,14 +22,16 @@ function expenseByCategory(rows) {
   return map
 }
 
-router.get('/', async (req, res) => {
+router.get('/', rateLimitReads, async (req, res) => {
   const { period = 'daily', date } = req.query
   const lineUserId = req.lineUser.userId
 
+  // period=all = ทั้งหมด (ไม่กรองวันที่) — ใช้กับบุคลิกการเงินแบบ all-time
+  const isAll = period === 'all'
   // ขอบเขตช่วงเวลาตามปฏิทินไทย — logic อยู่ใน period.js (มีเทสคุม)
   // ?date=YYYY-MM-DD = วันอ้างอิงสำหรับดูย้อนหลัง, ไม่ส่ง = วันนี้
-  const { fromIso, toIso } = computeRange(period, date)
-  const prev = computePreviousRange(period, date)
+  const { fromIso, toIso } = isAll ? {} : computeRange(period, date)
+  const prev = isAll ? null : computePreviousRange(period, date)
 
   // ชุดคอลัมน์ตามรุ่น migration — ลองครบสุดก่อนแล้ว "ถอยทีละขั้น" ห้ามข้ามขั้น:
   // DB ที่มีถึง 003 ยังมี type/category ครบ ถ้าถอยไปชุดเก่าสุดเลย ทุกรายการจะถูกตีเป็นรายรับ
@@ -41,15 +44,15 @@ router.get('/', async (req, res) => {
 
   // นับยอดตาม "วันที่บันทึก" (created_at = วันที่กดอัป/สร้างรายการ)
   // → อัปวันนี้จะอยู่ใน "วันนี้" เสมอ และไม่มีรายการหายแม้ OCR อ่านวันที่บนสลิปผิด
-  const querySlips = (cols) =>
-    supabase
+  const querySlips = (cols) => {
+    let q = supabase
       .from('slips')
       .select(cols)
       .eq('line_user_id', lineUserId)
       .eq('status', 'success')
-      .gte('created_at', fromIso)
-      .lt('created_at', toIso)
-      .order('created_at', { ascending: false })
+    if (!isAll) q = q.gte('created_at', fromIso).lt('created_at', toIso)
+    return q.order('created_at', { ascending: false })
+  }
 
   let slips, error
   for (const cols of [COLS_004, COLS_003, COLS_BASE]) {
@@ -74,15 +77,17 @@ router.get('/', async (req, res) => {
   // (ช่วงปัจจุบันให้ frontend คำนวณเองจาก slips เพื่อให้อัปเดตทันทีหลังแก้/ลบรายการ)
   // ดึงเฉพาะ amount/category/type ของรายจ่าย ถ้า DB เก่ายังไม่มีคอลัมน์ → ข้าม (ไม่มีลูกศร)
   let prevExpenseByCategory = {}
-  const { data: prevRows, error: prevErr } = await supabase
-    .from('slips')
-    .select('amount, category, type')
-    .eq('line_user_id', lineUserId)
-    .eq('status', 'success')
-    .eq('type', 'expense')
-    .gte('created_at', prev.fromIso)
-    .lt('created_at', prev.toIso)
-  if (!prevErr) prevExpenseByCategory = expenseByCategory(prevRows)
+  if (!isAll) {
+    const { data: prevRows, error: prevErr } = await supabase
+      .from('slips')
+      .select('amount, category, type')
+      .eq('line_user_id', lineUserId)
+      .eq('status', 'success')
+      .eq('type', 'expense')
+      .gte('created_at', prev.fromIso)
+      .lt('created_at', prev.toIso)
+    if (!prevErr) prevExpenseByCategory = expenseByCategory(prevRows)
+  }
 
   // แยกรายรับ/รายจ่ายตาม type (รายการที่ไม่มี type เช่นก่อน migrate = นับเป็นรายรับ)
   const totalIncome = slips
@@ -105,7 +110,7 @@ router.get('/', async (req, res) => {
 
 // สรุปยอด "ตลอดทั้งหมด" (ไม่จำกัดช่วงเวลา) — ใช้ในหน้าโปรไฟล์ ให้ต่างจากหน้ารายงานที่อิงช่วงเวลา
 // ดึงแค่ amount/type ทุกแถวที่สำเร็จของผู้ใช้ แล้วรวมในแอป (ปริมาณต่อผู้ใช้ไม่มากในแอปนี้)
-router.get('/summary', async (req, res) => {
+router.get('/summary', rateLimitReads, async (req, res) => {
   const lineUserId = req.lineUser.userId
 
   // DB เก่า (ก่อน migration 003) ยังไม่มีคอลัมน์ type → ถอยไปดึงแค่ amount แล้วตีเป็นรายรับทั้งหมด

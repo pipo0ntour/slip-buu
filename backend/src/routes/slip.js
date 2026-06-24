@@ -1,7 +1,7 @@
 import express from 'express'
 import multer from 'multer'
 import { ocrSlip, ocrNote, parseNoteText } from '../services/gemini.js'
-import { compressImage, OCR_PRESET, STORAGE_PRESET } from '../services/image.js'
+import { compressImage, OCR_PRESET, STORAGE_PRESET, imageFileFilter } from '../services/image.js'
 import { hashBuffer, checkByHash, checkByRefNo } from '../services/duplicate.js'
 import { supabase } from '../services/supabase.js'
 import { attachSignedImageUrls, storagePathOf } from '../services/storage.js'
@@ -12,6 +12,7 @@ const router = express.Router()
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: imageFileFilter, // รับเฉพาะรูป (image/*)
 })
 
 // ข้อความบอกว่าซ้ำกับรายการไหน — ร้านค้าจะได้เช็คย้อนได้ว่าบันทึกไปเมื่อไหร่ ยอดเท่าไร
@@ -458,6 +459,9 @@ router.post('/note-save', rateLimitByUser, async (req, res) => {
   try {
     const lineUserId = req.lineUser.userId
     const input = Array.isArray(req.body?.items) ? req.body.items : []
+    if (input.length > 50) {
+      return res.status(400).json({ status: 'error', message: 'รายการเยอะเกินไป (สูงสุด 50 รายการต่อครั้ง)' })
+    }
 
     const clean = (v) => {
       const s = (v ?? '').toString().trim()
