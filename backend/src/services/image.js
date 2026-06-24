@@ -7,6 +7,13 @@ import sharp from 'sharp'
 export const OCR_PRESET = { maxDim: 2000, quality: 92 }
 export const STORAGE_PRESET = { maxDim: 1280, quality: 80 }
 
+// fileFilter ของ multer — รับเฉพาะไฟล์ที่ประกาศตัวเป็นรูป (image/*) ปฏิเสธชนิดอื่นแต่เนิ่น ๆ
+// หมายเหตุ: mimetype ฝั่ง client ปลอมได้ ด่านจริงคือ sharp ใน compressImage ที่จะเด้ง non-image อยู่แล้ว
+// อันนี้เป็นแค่การกรองถูก ๆ ชั้นแรก (cb(null,false) = ดรอปไฟล์เงียบ ๆ → handler เด้ง "ไม่พบรูป" เอง)
+export function imageFileFilter(_req, file, cb) {
+  cb(null, /^image\//i.test(file?.mimetype || ''))
+}
+
 /**
  * บีบอัด + ปรับทิศทางรูปก่อนส่ง OCR หรือเก็บลง Storage
  * - หมุนรูปอัตโนมัติตาม EXIF (กล้องมือถือมักฝังข้อมูลทิศทางไว้) ช่วยให้ OCR แม่นขึ้น

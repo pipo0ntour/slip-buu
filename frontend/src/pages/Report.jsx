@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, Send, X } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { useToast } from '../context/ToastContext'
 import { apiGet } from '@/lib/api'
 import iconExcel from '@/assets/icon-excel.png'
@@ -16,6 +16,18 @@ import liff from '@line/liff'
 
 // แสดงรายการทีละ 10 แล้วค่อยกด "แสดงเพิ่ม" — กัน render DOM ทีเดียวเยอะตอนช่วงรายปี
 const PAGE_SIZE = 10
+
+// ไอคอน "แชร์/ส่งออก" — ลูกศรโค้งหนาพุ่งออกทางขวา (outline, ไม่มีกล่อง)
+function ShareIcon({ className }) {
+  return (
+    <svg
+      viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"
+      strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true"
+    >
+      <path d="M22 9.5 13.5 2v4.5C10 6.5 6.5 7.5 4 10.5c-.7 2-1 4-1 6 2-3.7 6-4 10.5-4V17z" />
+    </svg>
+  )
+}
 
 export default function Report() {
   const toast = useToast()
@@ -171,7 +183,7 @@ export default function Report() {
               {sending ? (
                 <span className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
               ) : (
-                <Send className="size-[18px]" />
+                <ShareIcon className="size-5" />
               )}
             </button>
           </div>

@@ -16,40 +16,73 @@ const AvatarMaker = lazy(() => import('@/components/AvatarMaker'))
 
 const EMPTY_STATS = { totalIncome: 0, totalExpense: 0, net: 0, count: 0 }
 
+// ช่วงเวลาของ "บุคลิกการเงิน" — คิดจากรายการจริงของช่วงที่เลือก
+const PERSONA_PERIODS = [
+  { key: 'monthly', label: 'เดือน', chip: 'เดือนนี้' },
+  { key: 'yearly', label: 'ปี', chip: 'ปีนี้' },
+  { key: 'all', label: 'ทั้งหมด', chip: 'ทั้งหมด' },
+]
+
 export default function Profile({ profile }) {
   const navigate = useNavigate()
   const toast = useToast()
   const [avatarFace, setAvatarFace] = useState(loadAvatarFace)
   const [showAvatar, setShowAvatar] = useState(false)
-  const [slips, setSlips] = useState([]) // รายการ "ปีนี้" ใช้คำนวณบุคลิก
-  const [stats, setStats] = useState(null) // ยอดรวม "ตลอดทั้งหมด" (จาก /api/report/summary)
-  const [loading, setLoading] = useState(true)
+
+  const [personaPeriod, setPersonaPeriod] = useState('yearly')
+  const [personaSlips, setPersonaSlips] = useState([]) // รายการของช่วงที่เลือก (ใช้คิดบุคลิก)
+  const [personaLoading, setPersonaLoading] = useState(true)
+
+  const [stats, setStats] = useState(null) // ยอดรวม "ตลอดทั้งหมด"
+  const [statsLoading, setStatsLoading] = useState(true)
   const [sessionExpired, setSessionExpired] = useState(false)
 
-  // ดึง 2 อย่างพร้อมกัน: รายการปีนี้ (บุคลิก) + ยอดรวมตลอดกาล (สถิติ)
-  async function load() {
-    setLoading(true)
+  // รายการของช่วงที่เลือก → คิดบุคลิก (เดือน/ปี = กรองวันที่, ทั้งหมด = period=all)
+  async function loadPersona() {
+    setPersonaLoading(true)
     try {
-      const [rRep, rSum] = await Promise.all([
-        apiGet(`/api/report?period=yearly&date=${anchorParam(bkkToday())}`),
-        apiGet('/api/report/summary'),
-      ])
-      if (rRep.status === 401 || rSum.status === 401) { setSessionExpired(true); return }
+      const q = personaPeriod === 'all'
+        ? 'period=all'
+        : `period=${personaPeriod}&date=${anchorParam(bkkToday())}`
+      const res = await apiGet(`/api/report?${q}`)
+      if (res.status === 401) { setSessionExpired(true); return }
       setSessionExpired(false)
-      const rep = rRep.ok ? await rRep.json().catch(() => null) : null
-      const sum = rSum.ok ? await rSum.json().catch(() => null) : null
-      setSlips(rep?.slips || [])
-      setStats(sum)
+      const j = res.ok ? await res.json().catch(() => null) : null
+      setPersonaSlips(j?.slips || [])
     } catch {
-      setSlips([]); setStats(null)
+      setPersonaSlips([])
     } finally {
-      setLoading(false)
+      setPersonaLoading(false)
     }
   }
 
-  useEffect(() => { load() }, [])
+  // ยอดรวมตลอดกาล (โหลดครั้งเดียว)
+  async function loadStats() {
+    setStatsLoading(true)
+    try {
+      const res = await apiGet('/api/report/summary')
+      if (res.status === 401) { setSessionExpired(true); return }
+      setSessionExpired(false)
+      const j = res.ok ? await res.json().catch(() => null) : null
+      setStats(j)
+    } catch {
+      setStats(null)
+    } finally {
+      setStatsLoading(false)
+    }
+  }
 
-  const persona = slips.length ? derivePersona(slips, categoryLabel) : null
+  useEffect(() => { loadStats() }, [])
+  useEffect(() => { loadPersona() }, [personaPeriod])
+
+  function retry() {
+    setSessionExpired(false)
+    loadStats()
+    loadPersona()
+  }
+
+  const persona = personaSlips.length ? derivePersona(personaSlips, categoryLabel) : null
+  const personaChip = PERSONA_PERIODS.find(p => p.key === personaPeriod)?.chip
   const st = stats || EMPTY_STATS
 
   return (
@@ -79,18 +112,47 @@ export default function Profile({ profile }) {
         </section>
 
         {sessionExpired ? (
-          <SessionExpiredCard onRetry={load} />
+          <SessionExpiredCard onRetry={retry} />
         ) : (
           <>
-            {/* บุคลิกการเงินปีนี้ */}
-            {!loading && persona && <PersonaCard persona={persona} periodLabel="ปีนี้" />}
+            {/* ช่วงเวลาของบุคลิก */}
+            <div className="mt-4 flex gap-2">
+              {PERSONA_PERIODS.map(p => (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => setPersonaPeriod(p.key)}
+                  className={`flex-1 h-9 rounded-full text-sm font-medium border transition-colors ${
+                    personaPeriod === p.key
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-card text-muted-foreground border-border'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {/* บุคลิกการเงินตามช่วงที่เลือก */}
+            {personaLoading ? (
+              <div className="mt-4 rounded-2xl border border-border bg-card p-8 shadow-sm flex justify-center">
+                <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : persona ? (
+              <PersonaCard persona={persona} periodLabel={personaChip} />
+            ) : (
+              <div className="mt-4 rounded-2xl border border-border bg-card p-8 shadow-sm text-center">
+                <p className="text-3xl mb-2">📭</p>
+                <p className="text-sm text-muted-foreground">ยังไม่มีรายการในช่วงนี้</p>
+              </div>
+            )}
 
             {/* สถิติรวมตลอดทั้งหมด (ต่างจากหน้ารายงานที่อิงช่วงเวลา) */}
             <div className="grid grid-cols-2 gap-3 mt-4">
-              <StatCard label="รายรับทั้งหมด" size="md" tone="income" value={loading ? '...' : fmtBaht(st.totalIncome)} />
-              <StatCard label="รายจ่ายทั้งหมด" size="md" tone="expense" value={loading ? '...' : fmtBaht(st.totalExpense)} />
-              <StatCard label="คงเหลือทั้งหมด" size="md" tone={st.net < 0 ? 'expense' : 'default'} value={loading ? '...' : fmtBaht(st.net)} />
-              <StatCard label="บันทึกทั้งหมด" size="md" value={loading ? '...' : String(st.count)} />
+              <StatCard label="รายรับทั้งหมด" size="md" tone="income" value={statsLoading ? '...' : fmtBaht(st.totalIncome)} />
+              <StatCard label="รายจ่ายทั้งหมด" size="md" tone="expense" value={statsLoading ? '...' : fmtBaht(st.totalExpense)} />
+              <StatCard label="คงเหลือทั้งหมด" size="md" tone={st.net < 0 ? 'expense' : 'default'} value={statsLoading ? '...' : fmtBaht(st.net)} />
+              <StatCard label="บันทึกทั้งหมด" size="md" value={statsLoading ? '...' : String(st.count)} />
             </div>
           </>
         )}

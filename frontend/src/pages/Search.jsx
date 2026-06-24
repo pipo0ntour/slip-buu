@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Search as SearchIcon, X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useToast } from '@/context/ToastContext'
 import { apiGet } from '@/lib/api'
-import { fmtBahtShort, summarize, categoryMeta } from '@/lib/finance'
+import { categoryMeta } from '@/lib/finance'
 import { bkkToday, stepAnchor, isAtPresent, anchorParam } from '@/lib/period'
 import SlipModal from '@/components/SlipModal'
 import SessionExpiredCard from '@/components/SessionExpiredCard'
@@ -70,8 +70,6 @@ export default function Search() {
     })
   }, [slips, q, type])
 
-  const sum = summarize(results)
-
   return (
     <div className="min-h-screen bg-background text-foreground pb-24">
       <div className="mx-auto max-w-md px-5 pt-6">
@@ -128,11 +126,9 @@ export default function Search() {
           </button>
         </div>
 
-        {/* สรุปผลค้น — แยกรายรับ/รายจ่าย (ไม่โชว์ยอดสุทธิติดลบให้งง) */}
+        {/* สรุปผลค้น — โชว์แค่จำนวนรายการ */}
         <p className="mt-4 text-xs text-muted-foreground">
-          {loading
-            ? 'กำลังโหลด...'
-            : `พบ ${results.length} รายการ · รายรับ ${fmtBahtShort(sum.totalIncome)} · รายจ่าย ${fmtBahtShort(sum.totalExpense)} ฿`}
+          {loading ? 'กำลังโหลด...' : `พบ ${results.length} รายการ`}
         </p>
 
         {/* ผลลัพธ์ — แตะแถวเพื่อดู/แก้/ลบ */}
