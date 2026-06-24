@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@dicebear/avataaars": "^9.4.2",
+    "@dicebear/core": "^9.4.2",
     "@line/liff": "^2.25.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

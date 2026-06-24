@@ -1,125 +1,23 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ChevronDown, ChevronLeft, ChevronRight, Send, X, Pencil, Trash2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { ChevronDown, ChevronLeft, ChevronRight, Send, X } from 'lucide-react'
 import { useToast } from '../context/ToastContext'
-import { apiGet, apiPatchJson, apiDelete } from '@/lib/api'
+import { apiGet } from '@/lib/api'
 import iconExcel from '@/assets/icon-excel.png'
 import iconPdf from '@/assets/icon-pdf.png'
-import { CATEGORIES } from '@/components/TransactionForm'
+import SlipModal from '@/components/SlipModal'
+import SessionExpiredCard from '@/components/SessionExpiredCard'
+import StatCard from '@/components/StatCard'
+import { PERIODS, bkkToday, stepAnchor, isAtPresent, anchorParam, anchorLabel } from '@/lib/period'
+import {
+  fmtBaht, fmtBahtShort, summarize, NO_CATEGORY,
+  categoryKey, categoryLabel, categoryMeta, expenseByCategory,
+} from '@/lib/finance'
 import liff from '@line/liff'
-
-const PERIODS = [
-  { key: 'daily', label: 'รายวัน' },
-  { key: 'monthly', label: 'รายเดือน' },
-  { key: 'yearly', label: 'รายปี' },
-]
 
 // แสดงรายการทีละ 10 แล้วค่อยกด "แสดงเพิ่ม" — กัน render DOM ทีเดียวเยอะตอนช่วงรายปี
 const PAGE_SIZE = 10
 
-// ───────── ตัวช่วยเลื่อนช่วงเวลา (วันอ้างอิงตามปฏิทินไทย Asia/Bangkok) ─────────
-const TZ_OFFSET_MS = 7 * 60 * 60 * 1000
-
-// วันนี้ตามเวลาไทย → { y, mo, d } (mo เริ่มที่ 0)
-function bkkToday() {
-  const n = new Date(Date.now() + TZ_OFFSET_MS)
-  return { y: n.getUTCFullYear(), mo: n.getUTCMonth(), d: n.getUTCDate() }
-}
-
-// เลื่อนวันอ้างอิงทีละ วัน/เดือน/ปี (dir = -1 ย้อน, +1 ถัดไป) — Date.UTC จัดการ overflow ให้เอง
-function stepAnchor(a, period, dir) {
-  let ms
-  if (period === 'daily') ms = Date.UTC(a.y, a.mo, a.d + dir)
-  else if (period === 'monthly') ms = Date.UTC(a.y, a.mo + dir, 1)
-  else ms = Date.UTC(a.y + dir, 0, 1)
-  const t = new Date(ms)
-  return { y: t.getUTCFullYear(), mo: t.getUTCMonth(), d: t.getUTCDate() }
-}
-
-// อยู่ที่ช่วงปัจจุบันแล้วหรือยัง (ใช้ปิดปุ่ม "ถัดไป" กันเลื่อนไปอนาคต)
-function isAtPresent(a, period) {
-  const t = bkkToday()
-  if (period === 'yearly') return a.y >= t.y
-  if (period === 'monthly') return a.y > t.y || (a.y === t.y && a.mo >= t.mo)
-  return a.y > t.y || (a.y === t.y && (a.mo > t.mo || (a.mo === t.mo && a.d >= t.d)))
-}
-
-// แปลงวันอ้างอิงเป็น YYYY-MM-DD (เกรกอเรียน) ส่งให้ backend
-function anchorParam(a) {
-  const pad = n => String(n).padStart(2, '0')
-  return `${a.y}-${pad(a.mo + 1)}-${pad(a.d)}`
-}
-
-// ป้ายช่วงเวลา (พ.ศ. ตาม locale ไทย ให้สอดคล้องกับส่วนอื่นของแอป)
-function anchorLabel(a, period) {
-  const dt = new Date(Date.UTC(a.y, a.mo, a.d))
-  if (period === 'daily') return dt.toLocaleDateString('th-TH', { timeZone: 'UTC', day: 'numeric', month: 'long', year: 'numeric' })
-  if (period === 'monthly') return dt.toLocaleDateString('th-TH', { timeZone: 'UTC', month: 'long', year: 'numeric' })
-  return `ปี ${a.y + 543}`
-}
-
-// คำนวณยอดรายรับ/รายจ่าย/คงเหลือจากลิสต์สลิป (ใช้หลังแก้ไขข้อมูลในเครื่อง)
-function summarize(slips) {
-  const totalIncome = slips
-    .filter(s => s.type !== 'expense')
-    .reduce((a, s) => a + (Number(s.amount) || 0), 0)
-  const totalExpense = slips
-    .filter(s => s.type === 'expense')
-    .reduce((a, s) => a + (Number(s.amount) || 0), 0)
-  return { totalIncome, totalExpense, net: totalIncome - totalExpense, count: slips.length }
-}
-
-// คีย์แทน "ไม่ระบุหมวด" — แยกออกจากหมวด 'อื่นๆ' ที่ผู้ใช้ติดป้ายเอง (ตรงกับ backend report.js)
-const NO_CATEGORY = '__none__'
-
-// สี + อิโมจิประจำหมวด — ให้แต่ละหมวดสีคงที่ สแกนด้วยตาได้เร็วทั้งในโดนัทและแถบ
-const CATEGORY_META = {
-  'ค่าของ': { emoji: '🛍️', color: '#3b82f6' },
-  'ค่าส่ง': { emoji: '🚚', color: '#f59e0b' },
-  'ค่าอาหาร': { emoji: '🍜', color: '#ef4444' },
-  'ค่าน้ำค่าไฟ': { emoji: '💡', color: '#eab308' },
-  'เงินเดือน': { emoji: '💼', color: '#8b5cf6' },
-  'อื่นๆ': { emoji: '📦', color: '#64748b' },
-}
-const NO_CATEGORY_META = { emoji: '❓', color: '#94a3b8' }
-// เผื่อหมวดที่ผู้ใช้พิมพ์เองนอกรายการมาตรฐาน — วนสีจากชุดนี้
-const FALLBACK_COLORS = ['#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16']
-
-// key สำหรับเทียบ/กรอง (null → '__none__') ให้ตรงกับ backend
-const categoryKey = category => (category == null ? NO_CATEGORY : category)
-const categoryLabel = category => (category == null ? 'ไม่ระบุหมวด' : category)
-function categoryMeta(category, idx = 0) {
-  if (category == null) return NO_CATEGORY_META
-  return CATEGORY_META[category] || { emoji: '🏷️', color: FALLBACK_COLORS[idx % FALLBACK_COLORS.length] }
-}
-
-// จัดกลุ่มรายจ่ายตามหมวดหมู่ (เรียงมาก→น้อย) + จำนวนรายการ/สัดส่วน — ดูว่าเงินหมดไปกับอะไรเยอะสุด
-function expenseByCategory(slips) {
-  const map = new Map()
-  let total = 0
-  for (const s of slips) {
-    if (s.type !== 'expense') continue
-    const amount = Number(s.amount) || 0
-    if (amount <= 0) continue
-    const key = s.category || null // null = ไม่ระบุหมวด (แยกจาก 'อื่นๆ')
-    const cur = map.get(key) || { amount: 0, count: 0 }
-    cur.amount += amount
-    cur.count += 1
-    map.set(key, cur)
-    total += amount
-  }
-  const rows = [...map.entries()]
-    .map(([category, v]) => ({ category, amount: v.amount, count: v.count, pct: total ? v.amount / total : 0 }))
-    .sort((a, b) => b.amount - a.amount)
-  return { total, rows }
-}
-
-const fmtBaht = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })
-const fmtBahtShort = n => Number(n || 0).toLocaleString('th-TH')
-
 export default function Report() {
-  const navigate = useNavigate()
   const toast = useToast()
   const [period, setPeriod] = useState('daily')
   const [anchor, setAnchor] = useState(bkkToday) // วันอ้างอิงสำหรับดูย้อนหลัง (เริ่มที่วันนี้)
@@ -252,14 +150,31 @@ export default function Report() {
               </>
             )}
           </div>
-          <ExportMenu
-            data={data}
-            periodLabel={periodLabel}
-            rangeLabel={anchorLabel(anchor, period)}
-            period={period}
-            disabled={loading || !data?.slips?.length}
-            toast={toast}
-          />
+          <div className="flex items-center gap-2">
+            <ExportMenu
+              data={data}
+              periodLabel={periodLabel}
+              rangeLabel={anchorLabel(anchor, period)}
+              period={period}
+              disabled={loading || !data?.slips?.length}
+              toast={toast}
+            />
+            {/* ส่งสรุปไปไลน์ — ย้ายจากแถบล่างเดิมมาเป็นปุ่มไอคอนข้างปุ่มส่งออก */}
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={!data || sending}
+              aria-label="ส่งสรุปไปไลน์"
+              title="ส่งสรุปไปไลน์"
+              className="w-10 h-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center active:opacity-90 transition-opacity disabled:opacity-40"
+            >
+              {sending ? (
+                <span className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Send className="size-[18px]" />
+              )}
+            </button>
+          </div>
         </div>
 
         {/* แถบเลื่อนช่วงเวลา — ดูย้อนหลังได้ (◀ ▶ เลื่อนตาม granularity ที่เลือก) */}
@@ -398,18 +313,6 @@ export default function Report() {
             onClose={() => setSelectedSlip(null)}
           />
         )}
-      </div>
-
-      <div className="fixed bottom-0 inset-x-0 border-t border-border bg-background/95 backdrop-blur px-5 py-3">
-        <div className="mx-auto max-w-md flex gap-3">
-          <Button variant="outline" className="flex-1 h-12 rounded-2xl" onClick={() => navigate('/')}>
-            กลับหน้าหลัก
-          </Button>
-          <Button className="flex-1 h-12 rounded-2xl" onClick={handleSend} disabled={!data || sending}>
-            <Send className="size-4" />
-            {sending ? 'กำลังส่ง...' : 'ส่งสรุปไปไลน์'}
-          </Button>
-        </div>
       </div>
     </div>
   )
@@ -596,320 +499,3 @@ function ExportIconButton({ label, onClick, disabled, loading, icon }) {
   )
 }
 
-function StatCard({ label, value, tone = 'default' }) {
-  const color = tone === 'income' ? 'text-green-600' : tone === 'expense' ? 'text-red-600' : 'text-foreground'
-  return (
-    <div className="rounded-2xl border border-border bg-card p-4">
-      <p className="text-xs font-semibold tracking-wide text-muted-foreground">{label}</p>
-      <p className={`mt-2 text-2xl font-bold ${color}`}>{value}</p>
-    </div>
-  )
-}
-
-function SessionExpiredCard({ onRetry }) {
-  return (
-    <section className="mt-6 rounded-2xl border border-border bg-card p-8 shadow-sm text-center">
-      <p className="text-3xl mb-2">🔒</p>
-      <p className="text-sm text-muted-foreground mb-4">
-        เซสชันหมดอายุ กรุณาปิดแล้วเปิดใหม่ผ่านเมนูใน LINE
-      </p>
-      <Button variant="outline" className="h-11 rounded-xl" onClick={onRetry}>
-        ลองใหม่
-      </Button>
-    </section>
-  )
-}
-
-// แปลง ISO → ค่าสำหรับ <input type="datetime-local"> (ตามเวลาเครื่องผู้ใช้)
-function toDatetimeLocal(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return ''
-  const pad = n => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function SlipModal({ slip, toast, onSaved, onDeleted, onClose }) {
-  const [editing, setEditing] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState(null)
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  // รูปสลิปขอแบบ lazy — หน้ารายงานส่งมาแค่ has_image (ดู report.js) ค่อยขอ signed URL ตอนเปิดดู
-  const [imageUrl, setImageUrl] = useState(slip.image_url || null)
-  const [imageLoading, setImageLoading] = useState(false)
-
-  useEffect(() => {
-    if (imageUrl || !slip.has_image) return // มี URL แล้ว หรือรายการนี้ไม่มีรูป → ไม่ต้องขอ
-    let alive = true
-    setImageLoading(true)
-    apiGet(`/api/slip/${slip.id}/image`)
-      .then(r => (r.ok ? r.json() : null))
-      .then(j => { if (alive && j?.url) setImageUrl(j.url) })
-      .catch(() => {})
-      .finally(() => { if (alive) setImageLoading(false) })
-    return () => { alive = false }
-  }, [slip.id])
-
-  function startEdit() {
-    setForm({
-      amount: slip.amount ?? '',
-      type: slip.type === 'expense' ? 'expense' : 'income',
-      sender_name: slip.sender_name ?? '',
-      receiver_name: slip.receiver_name ?? '',
-      bank_name: slip.bank_name ?? '',
-      reference_no: slip.reference_no ?? '',
-      category: slip.category ?? '',
-      note: slip.note ?? '',
-      transaction_at: toDatetimeLocal(slip.transaction_at),
-    })
-    setEditing(true)
-  }
-
-  const setField = (key, value) => setForm(prev => ({ ...prev, [key]: value }))
-
-  async function handleSave() {
-    setSaving(true)
-    try {
-      const payload = {
-        amount: form.amount === '' ? null : Number(form.amount),
-        type: form.type,
-        sender_name: form.sender_name.trim() || null,
-        receiver_name: form.receiver_name.trim() || null,
-        bank_name: form.bank_name.trim() || null,
-        reference_no: form.reference_no.trim() || null,
-        category: form.category || null,
-        note: form.note.trim() || null,
-        transaction_at: form.transaction_at ? new Date(form.transaction_at).toISOString() : null,
-      }
-      const res = await apiPatchJson(`/api/slip/${slip.id}`, payload)
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok || json.status !== 'success') throw new Error(json.message || 'แก้ไขไม่สำเร็จ')
-      onSaved(json.data)
-      toast?.({ message: 'แก้ไขข้อมูลสำเร็จ', type: 'success' })
-      setEditing(false)
-    } catch (e) {
-      toast?.({ message: e.message || 'แก้ไขไม่สำเร็จ กรุณาลองใหม่', type: 'error' })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function handleDelete() {
-    setDeleting(true)
-    try {
-      const res = await apiDelete(`/api/slip/${slip.id}`)
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok || json.status !== 'success') throw new Error(json.message || 'ลบไม่สำเร็จ')
-      toast?.({ message: 'ลบรายการแล้ว', type: 'success' })
-      onDeleted?.(slip.id)
-    } catch (e) {
-      toast?.({ message: e.message || 'ลบไม่สำเร็จ กรุณาลองใหม่', type: 'error' })
-      setDeleting(false)
-    }
-  }
-
-  const dateText = slip.transaction_at
-    ? new Date(slip.transaction_at).toLocaleString('th-TH', {
-        day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-      })
-    : '-'
-  const isExpense = slip.type === 'expense'
-
-  return (
-    <div
-      className="fixed inset-0 z-40 bg-black/60 flex items-end justify-center animate-fade-in"
-      onClick={saving || deleting ? undefined : onClose}
-    >
-      <div
-        className="w-full max-w-md bg-card rounded-t-3xl max-h-[90vh] flex flex-col animate-slide-up"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* ขีดจับ — บอกว่าเป็นแผ่นที่เลื่อนขึ้นมา ปิดได้ */}
-        <div className="mx-auto mt-3 h-1.5 w-10 rounded-full bg-muted shrink-0" />
-
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 px-5 pt-3 pb-3 border-b border-border">
-          <div className="min-w-0">
-            <p className="font-bold truncate">
-              {editing ? 'แก้ไขรายละเอียด' : slip.sender_name || slip.category || slip.note || 'ไม่ระบุชื่อ'}
-            </p>
-            {!editing && (
-              <p className="text-sm truncate">
-                <span className={isExpense ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
-                  {isExpense ? 'รายจ่าย' : 'รายรับ'}
-                </span>
-                <span className="text-muted-foreground">
-                  {' · '}{slip.bank_name || (slip.source === 'manual' ? 'สร้างเอง' : '-')}
-                </span>
-              </p>
-            )}
-          </div>
-          <button
-            onClick={onClose}
-            disabled={saving || deleting}
-            className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0 disabled:opacity-50"
-          >
-            <X className="size-4 text-muted-foreground" />
-          </button>
-        </div>
-
-        {/* Body (scrollable) */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          {editing ? (
-            <div className="space-y-3">
-              {/* ประเภท: รายรับ / รายจ่าย */}
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setField('type', 'income')}
-                  className={`h-11 rounded-xl text-sm font-semibold border transition-colors ${form.type !== 'expense' ? 'bg-green-600 text-white border-green-600' : 'bg-card text-muted-foreground border-border'}`}
-                >
-                  รายรับ
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setField('type', 'expense')}
-                  className={`h-11 rounded-xl text-sm font-semibold border transition-colors ${form.type === 'expense' ? 'bg-red-600 text-white border-red-600' : 'bg-card text-muted-foreground border-border'}`}
-                >
-                  รายจ่าย
-                </button>
-              </div>
-
-              <Field label="จำนวนเงิน (บาท)" type="number" inputMode="decimal" value={form.amount} onChange={v => setField('amount', v)} />
-
-              {/* หมวดหมู่ลัด */}
-              <div>
-                <span className="text-xs font-semibold text-muted-foreground">หมวดหมู่</span>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {CATEGORIES.map(c => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setField('category', form.category === c ? '' : c)}
-                      className={`h-9 px-3 rounded-full text-sm font-medium border transition-colors ${form.category === c ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-foreground border-border'}`}
-                    >
-                      {c}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <Field label="โน้ต (ค่าอะไร)" value={form.note} onChange={v => setField('note', v)} />
-              <Field label="ผู้โอน" value={form.sender_name} onChange={v => setField('sender_name', v)} />
-              <Field label="ผู้รับ" value={form.receiver_name} onChange={v => setField('receiver_name', v)} />
-              <Field label="ธนาคาร" value={form.bank_name} onChange={v => setField('bank_name', v)} />
-              <Field label="เลขอ้างอิง" value={form.reference_no} onChange={v => setField('reference_no', v)} />
-              <Field label="วันที่ทำรายการ" type="datetime-local" value={form.transaction_at} onChange={v => setField('transaction_at', v)} />
-            </div>
-          ) : (
-            <>
-              <div className="divide-y divide-border">
-                <DetailRow
-                  label="จำนวนเงิน"
-                  big
-                  value={`${isExpense ? '-' : '+'}${Number(slip.amount || 0).toLocaleString('th-TH')} บาท`}
-                  valueClass={isExpense ? 'text-red-600' : 'text-green-600'}
-                />
-                <DetailRow label="ประเภท" value={isExpense ? 'รายจ่าย' : 'รายรับ'} />
-                {slip.category && <DetailRow label="หมวดหมู่" value={slip.category} />}
-                {slip.note && <DetailRow label="โน้ต" value={slip.note} />}
-                <DetailRow label="ผู้โอน" value={slip.sender_name} />
-                <DetailRow label="ผู้รับ" value={slip.receiver_name} />
-                <DetailRow label="ธนาคาร" value={slip.bank_name} />
-                <DetailRow label="เลขอ้างอิง" value={slip.reference_no} />
-                {slip.sender_account && <DetailRow label="บัญชีผู้โอน" value={slip.sender_account} />}
-                {slip.receiver_account && <DetailRow label="บัญชีผู้รับ" value={slip.receiver_account} />}
-                {slip.fee != null && Number(slip.fee) > 0 && (
-                  <DetailRow label="ค่าธรรมเนียม" value={`${Number(slip.fee).toLocaleString('th-TH')} บาท`} />
-                )}
-                <DetailRow label="วันที่ทำรายการ" value={dateText} />
-              </div>
-
-              {imageUrl ? (
-                <img
-                  src={imageUrl}
-                  alt="สลิป"
-                  className="mt-4 w-full rounded-2xl object-contain max-h-[50vh] border border-border"
-                />
-              ) : (slip.has_image && imageLoading) ? (
-                <div className="mt-4 w-full h-48 rounded-2xl border border-border bg-muted animate-pulse" />
-              ) : null}
-            </>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="border-t border-border px-5 py-3 pb-6 flex gap-3">
-          {editing ? (
-            <>
-              <Button variant="outline" className="flex-1 h-12 rounded-2xl" onClick={() => setEditing(false)} disabled={saving}>
-                ยกเลิก
-              </Button>
-              <Button className="flex-1 h-12 rounded-2xl" onClick={handleSave} disabled={saving}>
-                {saving ? (
-                  <><span className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" /> กำลังบันทึก...</>
-                ) : 'บันทึก'}
-              </Button>
-            </>
-          ) : confirmDelete ? (
-            <>
-              <Button variant="outline" className="flex-1 h-12 rounded-2xl" onClick={() => setConfirmDelete(false)} disabled={deleting}>
-                ยกเลิก
-              </Button>
-              <Button
-                className="flex-1 h-12 rounded-2xl bg-red-600 text-white hover:bg-red-600"
-                onClick={handleDelete}
-                disabled={deleting}
-              >
-                {deleting ? (
-                  <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> กำลังลบ...</>
-                ) : 'ยืนยันลบ'}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button variant="outline" className="flex-1 h-12 rounded-2xl" onClick={startEdit}>
-                <Pencil className="size-4" /> แก้ไข
-              </Button>
-              <Button
-                variant="outline"
-                className="h-12 px-4 rounded-2xl text-red-600"
-                onClick={() => setConfirmDelete(true)}
-                aria-label="ลบรายการ"
-              >
-                <Trash2 className="size-4" />
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function DetailRow({ label, value, big, valueClass }) {
-  return (
-    <div className="flex justify-between items-start gap-4 py-3">
-      <span className="text-sm text-muted-foreground shrink-0">{label}</span>
-      <span className={`font-semibold text-right break-words ${big ? 'text-lg' : 'text-sm'} ${valueClass || 'text-foreground'}`}>
-        {value || '-'}
-      </span>
-    </div>
-  )
-}
-
-function Field({ label, value, onChange, type = 'text', inputMode }) {
-  return (
-    <label className="block">
-      <span className="text-xs font-semibold text-muted-foreground">{label}</span>
-      <input
-        type={type}
-        inputMode={inputMode}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="mt-1 w-full h-12 rounded-xl border border-input bg-background px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      />
-    </label>
-  )
-}

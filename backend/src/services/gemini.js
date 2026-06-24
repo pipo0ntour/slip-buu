@@ -400,3 +400,85 @@ export async function parseNoteText(text) {
     }))
     .filter((it) => it.amount != null && it.amount > 0)
 }
+
+// ───────────── อ่านใบหน้าจากเซลฟี่ → ลักษณะ (ไว้ประกอบอวตารการ์ตูน SVG ฝั่ง frontend) ─────────────
+// เก็บเป็น "ลักษณะเชิงความหมาย" (enum) ไม่ใช่ค่าของไลบรารีโดยตรง — frontend เป็นคนแมปเป็นชิ้นส่วนอวตาร
+// คุมค่าที่รับได้แน่นอน (normalize ใน analyzeFace) จะได้ไม่พังเวลาโมเดลตอบนอกชุด
+const FACE_ENUMS = {
+  skinTone: ['fair', 'light', 'medium', 'tan', 'brown', 'dark'],
+  hairColor: ['black', 'darkBrown', 'brown', 'blonde', 'auburn', 'red', 'gray', 'white', 'dyed'],
+  hairLength: ['bald', 'short', 'medium', 'long'],
+  hairStyle: ['straight', 'wavy', 'curly', 'coily', 'bun', 'ponytail', 'covered'],
+  facialHair: ['none', 'moustache', 'beard'],
+  headwear: ['none', 'hat', 'hijab'],
+  expression: ['smile', 'neutral'],
+}
+
+const faceSchema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    isFace: { type: SchemaType.BOOLEAN, description: 'true ถ้ารูปนี้มีใบหน้าคนชัดเจน, false ถ้าไม่มี' },
+    skinTone: { type: SchemaType.STRING, nullable: true, description: 'โทนสีผิว: fair|light|medium|tan|brown|dark' },
+    hairColor: { type: SchemaType.STRING, nullable: true, description: 'สีผม: black|darkBrown|brown|blonde|auburn|red|gray|white|dyed (dyed = ทำสีแฟชั่น เช่นชมพู/ฟ้า)' },
+    hairLength: { type: SchemaType.STRING, nullable: true, description: 'ความยาวผม: bald|short|medium|long' },
+    hairStyle: { type: SchemaType.STRING, nullable: true, description: 'ทรง/ลักษณะผม: straight|wavy|curly|coily|bun|ponytail|covered (covered = คลุมผม/โพกหัว)' },
+    glasses: { type: SchemaType.BOOLEAN, nullable: true, description: 'ใส่แว่นตาหรือไม่' },
+    facialHair: { type: SchemaType.STRING, nullable: true, description: 'หนวดเครา: none|moustache|beard' },
+    headwear: { type: SchemaType.STRING, nullable: true, description: 'สิ่งสวมหัว: none|hat|hijab' },
+    expression: { type: SchemaType.STRING, nullable: true, description: 'สีหน้า: smile (ยิ้ม) | neutral (เฉย)' },
+  },
+  required: ['isFace'],
+}
+
+const FACE_PROMPT = `คุณคือระบบอธิบายลักษณะใบหน้าจากรูปถ่าย เพื่อนำไปสร้าง "อวตารการ์ตูน" ที่หน้าตาคล้ายเจ้าของรูป
+ดูรูปแล้วระบุลักษณะที่ "เห็นชัดที่สุด" ตามชุดค่าที่กำหนดเท่านั้น ห้ามคิดค่าใหม่นอกชุด:
+- skinTone (โทนผิว): fair, light, medium, tan, brown, dark
+- hairColor (สีผม): black, darkBrown, brown, blonde, auburn, red, gray, white, dyed
+- hairLength (ความยาวผม): bald, short, medium, long
+- hairStyle (ทรงผม): straight, wavy, curly, coily, bun, ponytail, covered
+- glasses (แว่นตา): true / false
+- facialHair (หนวดเครา): none, moustache, beard
+- headwear (สวมหัว): none, hat, hijab
+- expression (สีหน้า): smile, neutral
+
+กฎ:
+- เลือกค่าที่ใกล้เคียงที่สุดเสมอ ถ้าไม่แน่ใจให้เดาค่าที่เป็นไปได้มากสุด ห้ามปล่อยว่างถ้าเห็นใบหน้า
+- ถ้าผมถูกคลุม/โพก ให้ hairStyle = covered และ headwear ตามที่เห็น
+- ถ้ารูปไม่มีใบหน้าคนชัดเจน ให้ isFace = false
+- อธิบายเฉพาะสิ่งที่เห็นจริงในรูป ไม่เพิ่มอคติเรื่องเพศ/เชื้อชาติเกินจากที่ปรากฏ`
+
+const FACE_GROQ_HINT = `
+
+ตอบกลับเป็น JSON object เท่านั้น ห้ามมีข้อความอื่นนอก JSON ใช้คีย์เหล่านี้ (ค่าต้องอยู่ในชุดที่กำหนด):
+{"isFace": boolean, "skinTone": "fair|light|medium|tan|brown|dark", "hairColor": "black|darkBrown|brown|blonde|auburn|red|gray|white|dyed", "hairLength": "bald|short|medium|long", "hairStyle": "straight|wavy|curly|coily|bun|ponytail|covered", "glasses": boolean, "facialHair": "none|moustache|beard", "headwear": "none|hat|hijab", "expression": "smile|neutral"}`
+
+// บังคับค่าให้อยู่ในชุด enum — ค่านอกชุด/ว่าง → ใช้ fallback (ปลอดภัยต่อการแมปฝั่ง frontend)
+const pickEnum = (val, allowed, fallback) =>
+  allowed.includes(val) ? val : fallback
+
+/**
+ * อ่านเซลฟี่ → ลักษณะใบหน้าเชิงความหมาย (หมุน backend อัตโนมัติเหมือน ocrSlip)
+ * frontend เอาไปแมปเป็นชิ้นส่วนอวตาร DiceBear เอง
+ * @returns {{ isFace:boolean, skinTone, hairColor, hairLength, hairStyle, glasses, facialHair, headwear, expression }}
+ */
+export async function analyzeFace(imageBuffer, mimeType = 'image/jpeg') {
+  const raw = await generateWithFallback({
+    promptText: FACE_PROMPT,
+    imageBase64: imageBuffer.toString('base64'),
+    mimeType,
+    schema: faceSchema,
+    groqHint: FACE_GROQ_HINT,
+  })
+
+  return {
+    isFace: raw.isFace !== false,
+    skinTone: pickEnum(raw.skinTone, FACE_ENUMS.skinTone, 'light'),
+    hairColor: pickEnum(raw.hairColor, FACE_ENUMS.hairColor, 'black'),
+    hairLength: pickEnum(raw.hairLength, FACE_ENUMS.hairLength, 'short'),
+    hairStyle: pickEnum(raw.hairStyle, FACE_ENUMS.hairStyle, 'straight'),
+    glasses: raw.glasses === true,
+    facialHair: pickEnum(raw.facialHair, FACE_ENUMS.facialHair, 'none'),
+    headwear: pickEnum(raw.headwear, FACE_ENUMS.headwear, 'none'),
+    expression: pickEnum(raw.expression, FACE_ENUMS.expression, 'smile'),
+  }
+}

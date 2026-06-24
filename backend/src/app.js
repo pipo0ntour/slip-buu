@@ -3,6 +3,7 @@ import cors from 'cors'
 import 'dotenv/config'
 import slipRoute from './routes/slip.js'
 import reportRoute from './routes/report.js'
+import avatarRoute from './routes/avatar.js'
 import { lineAuth } from './services/lineAuth.js'
 import { startKeepAlive } from './services/keepAlive.js'
 
@@ -41,6 +42,7 @@ app.use(express.json())
 
 app.use('/api/slip', lineAuth, slipRoute)
 app.use('/api/report', lineAuth, reportRoute)
+app.use('/api/avatar', lineAuth, avatarRoute)
 
 app.get('/', (_req, res) => res.json({ ok: true, service: 'slip-buu-backend', version: '1.2.0' }))
 

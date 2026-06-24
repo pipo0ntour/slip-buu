@@ -1,9 +1,16 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { initLiff } from './hooks/useLiff'
 import { ToastProvider } from './context/ToastContext'
+import TabBar from './components/TabBar'
 import Home from './pages/Home'
-import Report from './pages/Report'
+
+// หน้ารองโหลดแบบ lazy — หน้าแรก (Home) เบาไว้ก่อน หน้าอื่นค่อยโหลดตอนสลับแท็บ
+const Report = lazy(() => import('./pages/Report'))
+const Search = lazy(() => import('./pages/Search'))
+const Insights = lazy(() => import('./pages/Insights'))
+const Profile = lazy(() => import('./pages/Profile'))
+const Goals = lazy(() => import('./pages/Goals'))
 
 const LIFF_ID = import.meta.env.VITE_LIFF_ID
 
@@ -23,12 +30,32 @@ export default function App() {
   return (
     <ToastProvider>
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home profile={profile} />} />
-          <Route path="/report" element={<Report />} />
-        </Routes>
+        <Suspense fallback={<PageFallback />}>
+          <Routes>
+            <Route path="/" element={<Home profile={profile} />} />
+            <Route path="/report" element={<Report />} />
+            <Route path="/search" element={<Search />} />
+            <Route path="/insights" element={<Insights />} />
+            <Route path="/me" element={<Profile profile={profile} />} />
+            <Route path="/goals" element={<Goals />} />
+          </Routes>
+        </Suspense>
+        <TabBar />
       </BrowserRouter>
     </ToastProvider>
+  )
+}
+
+// fallback ระหว่างโหลด chunk ของหน้ารอง — เว้นที่ด้านล่างให้แถบแท็บ
+function PageFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background pb-24" role="status" aria-label="กำลังโหลด">
+      <div className="flex items-center gap-2">
+        <span className="w-2.5 h-2.5 rounded-full bg-primary animate-dot" />
+        <span className="w-2.5 h-2.5 rounded-full bg-primary animate-dot [animation-delay:0.15s]" />
+        <span className="w-2.5 h-2.5 rounded-full bg-primary animate-dot [animation-delay:0.3s]" />
+      </div>
+    </div>
   )
 }
 
