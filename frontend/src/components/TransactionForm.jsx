@@ -1,5 +1,4 @@
-import { useRef, useState } from 'react'
-import { X, Camera, ImagePlus } from 'lucide-react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { apiPostForm } from '@/lib/api'
 
@@ -16,30 +15,10 @@ export function ManualForm({ toast, onSaved, onClose }) {
   const [sender, setSender] = useState('')
   const [receiver, setReceiver] = useState('')
   const [date, setDate] = useState('')
-  const [image, setImage] = useState(null) // { file, url } รูปสินค้า/หลักฐานแนบ (ไม่บังคับ)
   const [saving, setSaving] = useState(false)
-  const cameraRef = useRef(null)
-  const galleryRef = useRef(null)
 
   const amountNum = Number(amount)
   const canSave = Number.isFinite(amountNum) && amountNum > 0 && !saving
-
-  function pickImage(e) {
-    const file = e.target.files?.[0]
-    e.target.value = '' // เคลียร์ค่า input เพื่อให้เลือกไฟล์เดิมซ้ำได้
-    if (!file) return
-    setImage(prev => {
-      if (prev?.url) URL.revokeObjectURL(prev.url)
-      return { file, url: URL.createObjectURL(file) }
-    })
-  }
-
-  function removeImage() {
-    setImage(prev => {
-      if (prev?.url) URL.revokeObjectURL(prev.url)
-      return null
-    })
-  }
 
   async function handleSave() {
     if (!canSave) return
@@ -53,7 +32,6 @@ export function ManualForm({ toast, onSaved, onClose }) {
       if (note.trim()) form.append('note', note.trim())
       if (category) form.append('category', category)
       if (date) form.append('transaction_at', new Date(date).toISOString()) // เว้นว่าง → backend ใช้เวลาปัจจุบัน
-      if (image?.file) form.append('image', image.file)
 
       const res = await apiPostForm('/api/slip/manual', form)
       if (res.status === 401) {
@@ -67,7 +45,6 @@ export function ManualForm({ toast, onSaved, onClose }) {
       const json = await res.json().catch(() => ({}))
       if (!res.ok || json.status !== 'success') throw new Error(json.message || 'บันทึกไม่สำเร็จ')
       toast?.({ message: 'บันทึกรายการแล้ว', type: 'success' })
-      if (image?.url) URL.revokeObjectURL(image.url)
       onSaved?.(json.data)
       onClose?.()
     } catch (e) {
@@ -139,42 +116,6 @@ export function ManualForm({ toast, onSaved, onClose }) {
         </div>
 
         <Field label="โน้ต (ค่าอะไร)" value={note} onChange={setNote} placeholder="เช่น ค่าเครื่องดื่มร้านกาแฟ" />
-
-        {/* รูปสินค้า/หลักฐาน (ไม่บังคับ) — ถ่ายรูปของที่ซื้อไว้แนบกับรายการได้ */}
-        <div>
-          <span className="text-xs font-semibold text-muted-foreground">รูปสินค้า/หลักฐาน (ไม่บังคับ)</span>
-          <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={pickImage} className="hidden" />
-          <input ref={galleryRef} type="file" accept="image/*" onChange={pickImage} className="hidden" />
-          {image ? (
-            <div className="mt-2 relative w-28 h-28">
-              <img src={image.url} alt="รูปแนบ" className="w-full h-full object-cover rounded-xl border border-border" />
-              <button
-                type="button"
-                onClick={removeImage}
-                className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-red-600 text-white flex items-center justify-center shadow"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-          ) : (
-            <div className="flex gap-2 mt-2">
-              <button
-                type="button"
-                onClick={() => cameraRef.current?.click()}
-                className="flex-1 h-12 rounded-xl border border-border bg-card flex items-center justify-center gap-2 text-sm font-medium text-foreground"
-              >
-                <Camera className="size-4" /> ถ่ายรูป
-              </button>
-              <button
-                type="button"
-                onClick={() => galleryRef.current?.click()}
-                className="flex-1 h-12 rounded-xl border border-border bg-card flex items-center justify-center gap-2 text-sm font-medium text-foreground"
-              >
-                <ImagePlus className="size-4" /> เลือกรูป
-              </button>
-            </div>
-          )}
-        </div>
 
         <Field label="ผู้โอน / จาก" value={sender} onChange={setSender} />
         <Field label="ผู้รับ / ถึง" value={receiver} onChange={setReceiver} />

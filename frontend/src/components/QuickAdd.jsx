@@ -97,7 +97,6 @@ export default function QuickAdd({ toast, onSaved, onClose }) {
               placeholder={'เช่น เช้านี้จ่ายค่าข้าว 50 ซื้อกาแฟ 45 ได้เงินจากลูกค้า 200'}
               className="w-full rounded-xl border border-input bg-background p-3 text-base text-foreground resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
-            <p className="text-xs text-muted-foreground">พิมพ์หลายรายการในประโยคเดียวได้ ระบบแยกให้เอง</p>
           </div>
         )}
 
