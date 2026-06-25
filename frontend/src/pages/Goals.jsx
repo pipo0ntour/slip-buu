@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Target, Pencil, Trash2, PiggyBank } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Target, Pencil, Trash2, PiggyBank, ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/context/ToastContext'
 import { apiGet } from '@/lib/api'
@@ -18,6 +19,7 @@ function mascotFor(pct) {
 
 export default function Goals() {
   const toast = useToast()
+  const navigate = useNavigate()
   const [goal, setGoal] = useState(loadGoal)
   const [saved, setSaved] = useState(0) // เงินออมเดือนนี้ (รายรับ − รายจ่าย)
   const [loading, setLoading] = useState(true)
@@ -56,6 +58,12 @@ export default function Goals() {
     toast?.({ message: 'ลบเป้าหมายแล้ว', type: 'success' })
   }
 
+  // ย้อนกลับไปหน้าก่อนหน้า (ปกติคือ "ฉัน") — ถ้าเปิดหน้านี้ตรงๆ ไม่มีประวัติ ก็ไป /me แทน
+  function goBack() {
+    if (window.history.length > 1) navigate(-1)
+    else navigate('/me')
+  }
+
   const pct = goal?.target > 0 ? saved / goal.target : 0
   const clamped = Math.max(0, Math.min(pct, 1))
   const mascot = mascotFor(pct)
@@ -63,9 +71,19 @@ export default function Goals() {
   return (
     <div className="min-h-screen bg-background text-foreground pb-24">
       <div className="mx-auto max-w-md px-5 pt-6">
-        <header className="mb-6">
-          <h1 className="text-2xl font-bold leading-tight">เป้าหมายออมเงิน</h1>
-          <p className="text-sm text-muted-foreground leading-tight">ตั้งเป้าเก็บเงินของเดือนนี้</p>
+        <header className="mb-6 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={goBack}
+            aria-label="ย้อนกลับ"
+            className="w-10 h-10 -ml-1 rounded-xl border border-border bg-card flex items-center justify-center shrink-0 active:bg-accent transition-colors"
+          >
+            <ArrowLeft className="size-5" />
+          </button>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold leading-tight">เป้าหมายออมเงิน</h1>
+            <p className="text-sm text-muted-foreground leading-tight">ตั้งเป้าเก็บเงินของเดือนนี้</p>
+          </div>
         </header>
 
         {/* เซสชันหมดอายุ = ดึงยอดเดือนนี้ไม่ได้ แต่ตั้ง/แก้เป้ายังทำได้ (เก็บในเครื่อง) */}
