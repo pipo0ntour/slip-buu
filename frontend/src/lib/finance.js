@@ -12,6 +12,9 @@ export const CATEGORY_META = {
   'ค่าส่ง': { emoji: '🚚', color: '#f59e0b' },
   'ค่าอาหาร': { emoji: '🍜', color: '#ef4444' },
   'ค่าน้ำค่าไฟ': { emoji: '💡', color: '#eab308' },
+  'ค่าเช่า': { emoji: '🏠', color: '#ec4899' },
+  'ค่าเดินทาง': { emoji: '🚗', color: '#14b8a6' },
+  'สุขภาพ': { emoji: '💊', color: '#22c55e' },
   'เงินเดือน': { emoji: '💼', color: '#8b5cf6' },
   'อื่นๆ': { emoji: '📦', color: '#64748b' },
 }

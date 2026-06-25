@@ -4,7 +4,7 @@ import { apiPostForm } from '@/lib/api'
 import { guessCategory } from '@/lib/categorize'
 
 // หมวดหมู่ลัด — ปรับ/เพิ่มได้ตามร้าน (ใช้ร่วมกับ note quick-pick ในหน้า Report)
-export const CATEGORIES = ['ค่าของ', 'ค่าส่ง', 'ค่าอาหาร', 'ค่าน้ำค่าไฟ', 'เงินเดือน', 'อื่นๆ']
+export const CATEGORIES = ['ค่าของ', 'ค่าส่ง', 'ค่าอาหาร', 'ค่าน้ำค่าไฟ', 'ค่าเช่า', 'ค่าเดินทาง', 'สุขภาพ', 'เงินเดือน', 'อื่นๆ']
 
 // ── ฟอร์มกรอกรายการละเอียด (1 รายการ) — body+footer ไม่มี chrome ของชีต ──
 // ใช้เป็นแท็บ "กรอกละเอียด" ใน AddSheet หรือใช้เดี่ยวผ่าน <TransactionForm/> (มี chrome ครบ)
