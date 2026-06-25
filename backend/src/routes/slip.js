@@ -237,10 +237,11 @@ router.patch('/:id', async (req, res) => {
         .select(cols)
         .maybeSingle()
 
-    let { data, error } = await doUpdate(`${BASE_COLS}, image_path`)
-    if (error && /column|could not find|schema cache/i.test(error.message)) {
-      // DB ยังไม่ migrate 004 (ไม่มีคอลัมน์ image_path) — เลือกเฉพาะคอลัมน์เดิม
-      ;({ data, error } = await doUpdate(BASE_COLS))
+    // ลองชุดคอลัมน์ใหม่สุดก่อน แล้วถอยทีละขั้นถ้า DB ยังไม่ migrate (006 = image_purged_at, 004 = image_path)
+    let data, error
+    for (const cols of [`${BASE_COLS}, image_path, image_purged_at`, `${BASE_COLS}, image_path`, BASE_COLS]) {
+      ;({ data, error } = await doUpdate(cols))
+      if (!error || !/column|could not find|schema cache/i.test(error.message)) break
     }
 
     if (error) {

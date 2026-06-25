@@ -4,6 +4,9 @@ import { Button } from '@/components/ui/button'
 import { apiGet, apiPatchJson, apiDelete } from '@/lib/api'
 import { CATEGORIES } from '@/components/TransactionForm'
 
+// จำนวนวันที่เก็บรูปก่อนลบอัตโนมัติ — ตรงกับดีฟอลต์ IMAGE_RETENTION_DAYS ฝั่ง backend
+const IMAGE_RETENTION_DAYS = 7
+
 // แปลง ISO → ค่าสำหรับ <input type="datetime-local"> (ตามเวลาเครื่องผู้ใช้)
 function toDatetimeLocal(iso) {
   if (!iso) return ''
@@ -220,6 +223,11 @@ export default function SlipModal({ slip, toast, onSaved, onDeleted, onClose }) 
                 />
               ) : (slip.has_image && imageLoading) ? (
                 <div className="mt-4 w-full h-48 rounded-2xl border border-border bg-muted animate-pulse" />
+              ) : slip.image_purged_at ? (
+                <div className="mt-4 flex items-start gap-2 rounded-2xl border border-dashed border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                  <Trash2 className="size-4 mt-0.5 shrink-0" />
+                  <span>รูปสลิปถูกลบอัตโนมัติแล้ว (เก็บเกิน {IMAGE_RETENTION_DAYS} วัน) — ข้อมูลรายการยังอยู่ครบ</span>
+                </div>
               ) : null}
             </>
           )}

@@ -1,0 +1,17 @@
+-- เก็บรูปสลิปแบบมีอายุ: เกิน N วัน (ดีฟอลต์ 7) backend จะลบ "ไฟล์รูป" ออกจากบักเก็ต
+-- แต่ "เก็บรายการไว้ครบ" (amount/type/category/ผู้โอน ฯลฯ ไม่แตะ)
+-- รูปสลิปมีชื่อคน/เลขบัญชีบางส่วน ไม่จำเป็นต้องเก็บถาวร — เก็บพอให้ย้อนดู แล้วลบเพื่อความเป็นส่วนตัว + ประหยัด storage
+--
+-- คอลัมน์นี้บันทึก "เวลาที่รูปถูกลบอัตโนมัติ" เพื่อให้ UI แยก
+--   "รูปหมดอายุถูกลบ" (image_purged_at มีค่า) ออกจาก "รายการที่ไม่มีรูปแต่แรก" (เช่น พิมพ์เอง)
+-- งานลบจริงทำโดย backend (src/services/imageRetention.js) ที่สแกนเป็นรอบ — ไฟล์นี้แค่เพิ่มคอลัมน์ + index
+--
+-- ลำดับ deploy: deploy backend ที่มี imageRetention ก่อน/พร้อมกัน แล้วรันไฟล์นี้ได้เลย (ปลอดภัยถ้ารันก่อน:
+-- service จะแค่ error เบา ๆ จนกว่าคอลัมน์จะมา ไม่มีการลบรูปเกิดขึ้น = fail-safe)
+
+ALTER TABLE slips ADD COLUMN IF NOT EXISTS image_purged_at TIMESTAMPTZ;
+
+-- ช่วยให้รอบสแกน (created_at เก่า + ยังมีรูป) เร็วขึ้น — index เฉพาะแถวที่ยังมีไฟล์รูป
+CREATE INDEX IF NOT EXISTS idx_slips_image_retention
+  ON slips (created_at)
+  WHERE image_path IS NOT NULL;
