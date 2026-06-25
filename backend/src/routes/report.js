@@ -37,6 +37,8 @@ router.get('/', rateLimitReads, async (req, res) => {
   // DB ที่มีถึง 003 ยังมี type/category ครบ ถ้าถอยไปชุดเก่าสุดเลย ทุกรายการจะถูกตีเป็นรายรับ
   const COLS_004 =
     'id, amount, sender_name, receiver_name, bank_name, reference_no, transaction_at, image_url, image_path, created_at, fee, sender_account, receiver_account, note, category, type, source'
+  // 006 เพิ่ม image_purged_at (เวลาที่รูปถูกลบอัตโนมัติ) — ลองชุดนี้ก่อน ถ้า DB ยังไม่ migrate ค่อยถอยไป 004
+  const COLS_006 = `${COLS_004}, image_purged_at`
   const COLS_003 =
     'id, amount, sender_name, receiver_name, bank_name, reference_no, transaction_at, image_url, created_at, fee, sender_account, receiver_account, note, category, type, source'
   const COLS_BASE =
@@ -55,7 +57,7 @@ router.get('/', rateLimitReads, async (req, res) => {
   }
 
   let slips, error
-  for (const cols of [COLS_004, COLS_003, COLS_BASE]) {
+  for (const cols of [COLS_006, COLS_004, COLS_003, COLS_BASE]) {
     ;({ data: slips, error } = await querySlips(cols))
     if (!error || !/column|could not find|schema cache/i.test(error.message)) break
   }
