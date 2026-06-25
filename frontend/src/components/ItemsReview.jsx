@@ -1,5 +1,8 @@
 import { Trash2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { CATEGORIES } from '@/components/TransactionForm'
+import { categoryMeta } from '@/lib/finance'
+import { guessCategory } from '@/lib/categorize'
 
 // รายการที่ AI แตกออกมา (จากถ่ายโน้ต หรือ พิมพ์/พูด) — แก้/ลบ/เพิ่มได้ก่อนบันทึก
 // แยกเป็น component กลาง: body (ItemsReview) + footer ยอดสุทธิ/ปุ่มบันทึก (ItemsReviewFooter)
@@ -16,9 +19,15 @@ export function netOf(items) {
 
 // ── body: ลิสต์รายการแก้ได้ + ปุ่มเพิ่มรายการ ──
 export default function ItemsReview({ items, setItems }) {
-  const updateItem = (i, patch) => setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...patch } : it)))
+  const updateItem = (i, patch) => setItems((prev) => prev.map((it, idx) => {
+    if (idx !== i) return it
+    const next = { ...it, ...patch }
+    // แก้รายละเอียด + ยังไม่เคยเลือกหมวดเอง → เดาหมวดให้ใหม่จากข้อความล่าสุด
+    if ('description' in patch && !it.categoryTouched) next.category = guessCategory(patch.description) || ''
+    return next
+  }))
   const removeItem = (i) => setItems((prev) => prev.filter((_, idx) => idx !== i))
-  const addItem = () => setItems((prev) => [...prev, { description: '', amount: '', type: 'expense' }])
+  const addItem = () => setItems((prev) => [...prev, { description: '', amount: '', type: 'expense', category: '' }])
   const validCount = validItemsOf(items).length
 
   return (
@@ -70,6 +79,17 @@ export default function ItemsReview({ items, setItems }) {
               />
               <span className="text-sm text-muted-foreground shrink-0">บาท</span>
             </div>
+            {/* หมวด — เดาให้จากรายละเอียดอัตโนมัติ เปลี่ยนเองได้ */}
+            <select
+              value={it.category || ''}
+              onChange={(e) => updateItem(i, { category: e.target.value, categoryTouched: true })}
+              className="w-full h-10 rounded-lg border border-input bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="">ไม่ระบุหมวด</option>
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>{categoryMeta(c).emoji} {c}</option>
+              ))}
+            </select>
           </div>
         )
       })}

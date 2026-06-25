@@ -3,6 +3,7 @@ import { X, Camera, ImagePlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { apiPostForm, apiPostJson } from '@/lib/api'
 import ItemsReview, { ItemsReviewFooter, validItemsOf } from '@/components/ItemsReview'
+import { guessCategory } from '@/lib/categorize'
 
 // ถ่ายรูปโน้ตที่จดเอง → AI แตกเป็นรายการ → ทวน/แก้ → บันทึกทีเดียวหลายรายการ
 // phase: 'capture' (เลือกรูป) → 'scanning' (กำลังอ่าน) → 'review' (ทวน/แก้)
@@ -36,6 +37,7 @@ export default function NoteScan({ toast, onSaved, onClose }) {
         description: it.description || '',
         amount: String(it.amount ?? ''),
         type: it.type === 'income' ? 'income' : 'expense',
+        category: guessCategory(it.description) || '', // เดาหมวดให้ตั้งแต่แรก แก้ได้ในหน้าทวน
       }))
       if (!list.length) toast?.({ message: json.message || 'อ่านไม่พบรายการในโน้ต ลองเพิ่มเอง', type: 'warning' })
       // ไม่พบรายการก็ให้แถวว่าง 1 แถวไว้กรอกเอง
@@ -63,6 +65,7 @@ export default function NoteScan({ toast, onSaved, onClose }) {
           description: it.description.trim() || null,
           amount: Number(it.amount),
           type: it.type,
+          category: it.category || null,
         })),
       }
       const res = await apiPostJson('/api/slip/note-save', payload)

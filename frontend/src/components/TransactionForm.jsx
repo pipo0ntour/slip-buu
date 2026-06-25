@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { apiPostForm } from '@/lib/api'
+import { guessCategory } from '@/lib/categorize'
 
 // หมวดหมู่ลัด — ปรับ/เพิ่มได้ตามร้าน (ใช้ร่วมกับ note quick-pick ในหน้า Report)
 export const CATEGORIES = ['ค่าของ', 'ค่าส่ง', 'ค่าอาหาร', 'ค่าน้ำค่าไฟ', 'เงินเดือน', 'อื่นๆ']
@@ -11,7 +12,19 @@ export function ManualForm({ toast, onSaved, onClose }) {
   const [type, setType] = useState('income') // 'income' | 'expense'
   const [amount, setAmount] = useState('')
   const [category, setCategory] = useState('')
+  const [categoryTouched, setCategoryTouched] = useState(false) // ผู้ใช้เลือกหมวดเอง → หยุดเดาอัตโนมัติ
   const [note, setNote] = useState('')
+
+  // พิมพ์โน้ต → เดาหมวดให้ ตราบใดที่ผู้ใช้ยังไม่ได้เลือกหมวดเอง
+  const autoGuessed = !categoryTouched && !!category
+  function handleNoteChange(v) {
+    setNote(v)
+    if (!categoryTouched) setCategory(guessCategory(v) || '')
+  }
+  function pickCategory(c) {
+    setCategoryTouched(true)
+    setCategory((prev) => (prev === c ? '' : c))
+  }
   const [sender, setSender] = useState('')
   const [receiver, setReceiver] = useState('')
   const [date, setDate] = useState('')
@@ -96,15 +109,18 @@ export function ManualForm({ toast, onSaved, onClose }) {
           />
         </label>
 
-        {/* หมวดหมู่ลัด */}
+        {/* หมวดหมู่ลัด — เดาให้จากโน้ตอัตโนมัติ กดเปลี่ยนเองได้ */}
         <div>
-          <span className="text-xs font-semibold text-muted-foreground">หมวดหมู่</span>
+          <span className="text-xs font-semibold text-muted-foreground">
+            หมวดหมู่
+            {autoGuessed && <span className="font-normal text-primary"> · เดาจากโน้ตให้แล้ว</span>}
+          </span>
           <div className="flex flex-wrap gap-2 mt-2">
             {CATEGORIES.map(c => (
               <button
                 key={c}
                 type="button"
-                onClick={() => setCategory(prev => (prev === c ? '' : c))}
+                onClick={() => pickCategory(c)}
                 className={`h-9 px-3 rounded-full text-sm font-medium border transition-colors ${
                   category === c ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-foreground border-border'
                 }`}
@@ -115,7 +131,7 @@ export function ManualForm({ toast, onSaved, onClose }) {
           </div>
         </div>
 
-        <Field label="โน้ต (ค่าอะไร)" value={note} onChange={setNote} placeholder="เช่น ค่าเครื่องดื่มร้านกาแฟ" />
+        <Field label="โน้ต (ค่าอะไร)" value={note} onChange={handleNoteChange} placeholder="เช่น หมู ไก่ ค่าไฟ ค่าส่ง" />
 
         <Field label="ผู้โอน / จาก" value={sender} onChange={setSender} />
         <Field label="ผู้รับ / ถึง" value={receiver} onChange={setReceiver} />
