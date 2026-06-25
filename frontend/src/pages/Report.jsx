@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, X, MessageCircle, Share2, Copy } from 'lucide-react'
 import { useToast } from '../context/ToastContext'
 import { apiGet } from '@/lib/api'
 import iconExcel from '@/assets/icon-excel.png'
@@ -29,6 +29,43 @@ function ShareIcon({ className }) {
   )
 }
 
+// ข้อความสรุปที่ใช้ร่วมกันทั้ง 3 ช่องทางแชร์ (ส่งไลน์ / share sheet / คัดลอก) — จะได้ format ตรงกัน
+function buildSummaryText(data, anchor, period) {
+  // หมวดจ่ายเด่นสุด 3 อันดับ — ให้ข้อความสรุปบอกได้ว่าเงินหมดไปกับอะไร ไม่ใช่แค่ยอดรวม
+  const { rows } = expenseByCategory(data.slips || [])
+  const topExpense = rows
+    .slice(0, 3)
+    .map(r => `  • ${categoryMeta(r.category).emoji} ${categoryLabel(r.category)}: ${fmtBaht(r.amount)} บาท`)
+    .join('\n')
+
+  return (
+    `📊 สรุปยอด ${anchorLabel(anchor, period)}\n` +
+    `รายรับ: ${fmtBaht(data.totalIncome)} บาท\n` +
+    `รายจ่าย: ${fmtBaht(data.totalExpense)} บาท\n` +
+    `คงเหลือ: ${fmtBaht(data.net)} บาท\n` +
+    `จำนวน: ${data.count || 0} รายการ` +
+    (topExpense ? `\n\nรายจ่ายเด่น:\n${topExpense}` : '')
+  )
+}
+
+// คัดลอกข้อความลงคลิปบอร์ด — ใช้ Clipboard API ก่อน, ถ้าเว็บวิวเก่าไม่รองรับค่อย fallback ไป execCommand
+async function copyToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.focus()
+  ta.select()
+  const ok = document.execCommand('copy')
+  document.body.removeChild(ta)
+  if (!ok) throw new Error('copy failed')
+}
+
 export default function Report() {
   const toast = useToast()
   const [period, setPeriod] = useState('daily')
@@ -36,7 +73,6 @@ export default function Report() {
   const [showDropdown, setShowDropdown] = useState(false)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [sending, setSending] = useState(false)
   const [selectedSlip, setSelectedSlip] = useState(null)
   const [sessionExpired, setSessionExpired] = useState(false)
   const [activeKey, setActiveKey] = useState(null) // หมวดที่กำลังกรองดูรายการ (null = ไม่กรอง)
@@ -89,32 +125,6 @@ export default function Report() {
       setData({ totalAmount: 0, count: 0, saved: 0, needsCheck: 0, slips: [] })
     } finally {
       setLoading(false)
-    }
-  }
-
-  async function handleSend() {
-    if (!data) return
-    setSending(true)
-    try {
-      // หมวดจ่ายเด่นสุด 3 อันดับ — ให้ข้อความสรุปบอกได้ว่าเงินหมดไปกับอะไร ไม่ใช่แค่ยอดรวม
-      const { rows } = expenseByCategory(data.slips || [])
-      const topExpense = rows
-        .slice(0, 3)
-        .map(r => `  • ${categoryMeta(r.category).emoji} ${categoryLabel(r.category)}: ${fmtBaht(r.amount)} บาท`)
-        .join('\n')
-
-      const text =
-        `📊 สรุปยอด ${anchorLabel(anchor, period)}\n` +
-        `รายรับ: ${fmtBaht(data.totalIncome)} บาท\n` +
-        `รายจ่าย: ${fmtBaht(data.totalExpense)} บาท\n` +
-        `คงเหลือ: ${fmtBaht(data.net)} บาท\n` +
-        `จำนวน: ${data.count || 0} รายการ` +
-        (topExpense ? `\n\nรายจ่ายเด่น:\n${topExpense}` : '')
-      await liff.shareTargetPicker([{ type: 'text', text }])
-    } catch {
-      // user cancelled
-    } finally {
-      setSending(false)
     }
   }
 
@@ -171,21 +181,14 @@ export default function Report() {
               disabled={loading || !data?.slips?.length}
               toast={toast}
             />
-            {/* ส่งสรุปไปไลน์ — ย้ายจากแถบล่างเดิมมาเป็นปุ่มไอคอนข้างปุ่มส่งออก */}
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={!data || sending}
-              aria-label="ส่งสรุปไปไลน์"
-              title="ส่งสรุปไปไลน์"
-              className="w-10 h-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center active:opacity-90 transition-opacity disabled:opacity-40"
-            >
-              {sending ? (
-                <span className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <ShareIcon className="size-5" />
-              )}
-            </button>
+            {/* แชร์สรุป — เมนูเลือกช่องทาง: แชตไลน์ / แอปอื่น (share sheet) / คัดลอกข้อความ */}
+            <ShareMenu
+              data={data}
+              anchor={anchor}
+              period={period}
+              disabled={loading || !data?.slips?.length}
+              toast={toast}
+            />
           </div>
         </div>
 
@@ -438,6 +441,101 @@ function CategoryBreakdown({ slips, prevByCategory = {}, activeKey, onSelect }) 
         })}
       </div>
     </section>
+  )
+}
+
+// เมนูแชร์สรุป — ปุ่มไอคอนเขียว กดแล้วเปิดเมนูเลือกช่องทาง
+//   • ส่งไปแชตไลน์ (shareTargetPicker — ได้เฉพาะในแอป LINE)
+//   • แชร์ไปแอปอื่น (Web Share API → share sheet มือถือ มี IG/FB/ฯลฯ; โชว์เฉพาะเครื่องที่รองรับ)
+//   • คัดลอกข้อความ (fallback ที่ชัวร์สุด เอาไปแปะที่ไหนก็ได้)
+function ShareMenu({ data, anchor, period, disabled, toast }) {
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false) // true เฉพาะตอนรอ shareTargetPicker (โชว์ spinner ที่ปุ่ม)
+  const canWebShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+
+  async function shareToLine() {
+    setOpen(false)
+    if (!data) return
+    setBusy(true)
+    try {
+      await liff.shareTargetPicker([{ type: 'text', text: buildSummaryText(data, anchor, period) }])
+    } catch {
+      // ผู้ใช้กดยกเลิก หรือไม่ได้อยู่ในแอป LINE
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function shareToApps() {
+    setOpen(false)
+    if (!data) return
+    try {
+      await navigator.share({ title: 'สรุปยอด Slip-BUU', text: buildSummaryText(data, anchor, period) })
+    } catch {
+      // ผู้ใช้กดยกเลิก share sheet — ไม่ต้องแจ้ง error
+    }
+  }
+
+  async function copyText() {
+    setOpen(false)
+    if (!data) return
+    try {
+      await copyToClipboard(buildSummaryText(data, anchor, period))
+      toast?.({ message: 'คัดลอกข้อความแล้ว', type: 'success' })
+    } catch {
+      toast?.({ message: 'คัดลอกไม่สำเร็จ กรุณาลองใหม่', type: 'error' })
+    }
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        disabled={disabled || busy}
+        aria-label="แชร์สรุป"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="แชร์สรุป"
+        className="w-10 h-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center active:opacity-90 transition-opacity disabled:opacity-40"
+      >
+        {busy ? (
+          <span className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
+        ) : (
+          <ShareIcon className="size-5" />
+        )}
+      </button>
+      {open && (
+        <>
+          {/* ชั้นโปร่งใสคลุมทั้งจอ — แตะที่ไหนก็ได้นอกเมนูเพื่อปิด (pattern เดียวกับ dropdown ช่วงเวลา) */}
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            role="menu"
+            className="absolute right-0 top-full mt-1 z-20 rounded-xl border border-border bg-card shadow-md overflow-hidden min-w-[180px]"
+          >
+            <ShareMenuItem icon={<MessageCircle className="size-4" />} label="ส่งไปแชตไลน์" onClick={shareToLine} />
+            {canWebShare && (
+              <ShareMenuItem icon={<Share2 className="size-4" />} label="แชร์ไปแอปอื่น…" onClick={shareToApps} />
+            )}
+            <ShareMenuItem icon={<Copy className="size-4" />} label="คัดลอกข้อความ" onClick={copyText} />
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function ShareMenuItem({ icon, label, onClick }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent active:bg-accent transition-colors"
+    >
+      <span className="text-muted-foreground shrink-0">{icon}</span>
+      {label}
+    </button>
   )
 }
 

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Camera, ImagePlus, X, CheckCircle, AlertTriangle, XCircle, Plus, NotebookPen, Sparkles } from 'lucide-react'
+import { Camera, ImagePlus, X, CheckCircle, AlertTriangle, XCircle, Plus, NotebookPen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/context/ToastContext'
 import { apiPostForm } from '@/lib/api'
@@ -148,10 +148,6 @@ export default function Home({ profile }) {
               fallbackUrl={profile?.pictureUrl}
               className="h-12 w-12 rounded-full"
             />
-            {/* จุดบอกใบ้ว่ากดเปลี่ยนเป็นการ์ตูนได้ */}
-            <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow ring-2 ring-background">
-              <Sparkles className="size-3" />
-            </span>
           </button>
           <div>
             <h1 className="text-2xl font-bold leading-tight">
