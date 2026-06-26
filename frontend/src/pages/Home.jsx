@@ -121,7 +121,7 @@ export default function Home({ profile }) {
       const fail = list.length - ok
       toast({
         message: fail === 0
-          ? `บันทึกสำเร็จ ${ok} สลิป`
+          ? `บันทึกสำเร็จ ${ok} รายการ`
           : `สำเร็จ ${ok} · ซ้ำ/ผิดพลาด ${fail}`,
         type: fail === 0 ? 'success' : 'warning',
       })
@@ -153,16 +153,17 @@ export default function Home({ profile }) {
             <h1 className="text-2xl font-bold leading-tight">
               {profile?.displayName || 'Slip-BUU'}
             </h1>
-            <p className="text-sm text-muted-foreground leading-tight">ระบบส่งสลิปโอนเงิน</p>
+            <p className="text-sm text-muted-foreground leading-tight">ส่งสลิปโอนเงิน · ใบเสร็จ/ตั๋ว</p>
           </div>
         </header>
 
         {/* Upload Card */}
         <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-          <h2 className="text-xl font-bold">อัพโหลดสลิป</h2>
+          <h2 className="text-xl font-bold">อัพโหลดสลิป / ใบเสร็จ</h2>
           <p className="text-sm text-muted-foreground mt-1">{items.length} / {MAX_FILES} รายการ</p>
 
-          {/* ทิศทางเงินของสลิปชุดนี้ — บอกระบบว่าเป็นเงินเข้าหรือเงินออก (แก้รายใบทีหลังได้ในหน้ารายงาน) */}
+          {/* ทิศทางเงิน (สำหรับสลิป) — บอกระบบว่าเป็นเงินเข้าหรือเงินออก (แก้รายใบทีหลังได้ในหน้ารายงาน)
+              ใบเสร็จ/ตั๋ว ระบบตรวจจับเองและบันทึกเป็น "รายจ่าย" อัตโนมัติ ไม่ขึ้นกับปุ่มนี้ */}
           <div className="grid grid-cols-2 gap-2 mt-4">
             <button
               type="button"
@@ -236,17 +237,17 @@ export default function Home({ profile }) {
             {loading ? (
               <>
                 <span className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
-                {progress ? `กำลังอ่านสลิป ${progress.current}/${progress.total}` : 'กำลังส่ง...'}
+                {progress ? `กำลังอ่าน ${progress.current}/${progress.total}` : 'กำลังส่ง...'}
               </>
             ) : items.length > 0 ? (
-              `อัพโหลด ${items.length} สลิป`
+              `อัพโหลด ${items.length} รายการ`
             ) : (
-              'อัพโหลด 0 สลิป'
+              'อัพโหลด 0 รายการ'
             )}
           </Button>
           {loading && progress && progress.total > 1 && (
             <p className="text-xs text-muted-foreground text-center mt-2">
-              สลิปหลายใบอาจใช้เวลาสักครู่ กรุณาอย่าปิดหน้านี้
+              หลายใบอาจใช้เวลาสักครู่ กรุณาอย่าปิดหน้านี้
             </p>
           )}
         </section>
@@ -350,7 +351,7 @@ function ResultSummary({ results, onPreview }) {
           const isDup = r.status === 'duplicate'
           const Icon = isOk ? CheckCircle : isDup ? AlertTriangle : XCircle
           const color = isOk ? 'text-green-600' : isDup ? 'text-amber-600' : 'text-destructive'
-          const label = isOk ? 'สำเร็จ' : isDup ? 'สลิปซ้ำ' : 'ผิดพลาด'
+          const label = isOk ? 'สำเร็จ' : isDup ? 'รายการซ้ำ' : 'ผิดพลาด'
           // มีรูปแนบ → ทั้งแถวกดดูรูปได้ (สำคัญตอนขึ้น "ซ้ำ" จะได้รู้ว่าใบไหน)
           const Row = r.imageUrl ? 'button' : 'div'
           return (
@@ -365,7 +366,7 @@ function ResultSummary({ results, onPreview }) {
                 )}
                 <Icon className={`size-5 shrink-0 ${color}`} />
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold truncate">{r.data?.senderName || `สลิป ${i + 1}`}</p>
+                  <p className="text-sm font-semibold truncate">{r.data?.senderName || `รายการ ${i + 1}`}</p>
                   <p className="text-xs text-muted-foreground truncate">{r.data?.bank || r.message || label}</p>
                 </div>
               </div>
