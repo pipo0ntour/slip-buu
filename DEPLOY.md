@@ -119,6 +119,51 @@ curl https://<railway-url>/        # ต้องได้ {"ok":true,"service":
 
 ---
 
+## 4️⃣-ทางเลือก Backend → Render (free, แทน Railway) 🆓
+
+ใช้แทนข้อ 4️⃣ ได้ถ้าไม่อยากจ่าย Railway — repo มี [`render.yaml`](render.yaml) (Blueprint) อยู่แล้ว
+
+> ⚠️ Render free **หลับหลังไม่มี request 15 นาที** (cold start ~30-60 วิ) → ต้องตั้ง pinger กันหลับในข้อ R4
+> โควต้าฟรี 750 ชม./เดือน/workspace = รันค้าง 24/7 ได้ **1 service** พอดี
+
+### R1 Deploy ผ่าน Blueprint 🟢 `[คุณทำ]`
+1. push `render.yaml` ขึ้น branch `main` ก่อน
+2. [Render Dashboard](https://dashboard.render.com/) → **New + → Blueprint** → เลือก repo `slip-buu`
+3. Render อ่าน `render.yaml` แล้วสร้าง service `slip-buu-api` ให้อัตโนมัติ → กด **Apply**
+
+### R2 ตั้ง Environment Variables 🟢 `[คุณทำ]`
+ตอน Apply Render จะถามค่าที่ตั้ง `sync: false` ไว้ — กรอกให้ครบ:
+
+| Key | ค่า |
+|---|---|
+| `SUPABASE_URL` | `https://xxxx.supabase.co` |
+| `SUPABASE_SERVICE_KEY` | service_role key |
+| `GEMINI_API_KEY` | Gemini key |
+| `LINE_LOGIN_CHANNEL_ID` | channel id |
+| `CORS_ORIGIN` | เว้นว่างก่อน เดี๋ยวข้อ 7 ใส่ URL Vercel |
+| `GROQ_API_KEYS` | (ไม่บังคับ) Groq key สำหรับ OCR fallback |
+
+> ⚠️ **อย่า** ตั้ง `PORT` เอง — Render กำหนดให้อัตโนมัติ
+
+### R3 เช็คว่า backend ตื่น 🔵 `[รันได้]`
+```bash
+curl https://slip-buu-api.onrender.com/   # ต้องได้ {"ok":true,"service":"slip-buu-backend"}
+```
+นำ URL นี้ไปใส่ `VITE_API_URL` (ข้อ 5️⃣) แทน URL Railway
+
+### R4 กันเครื่องหลับด้วย uptime pinger 🟢 `[คุณทำ]`
+1. สมัคร [UptimeRobot](https://uptimerobot.com/) (ฟรี) หรือ [cron-job.org](https://cron-job.org/)
+2. New Monitor → **HTTP(s)** → URL = `https://slip-buu-api.onrender.com/`
+3. Interval = **10 นาที** (ต่ำกว่า 15 นาทีของ Render)
+4. เสร็จ — เครื่องจะไม่หลับ + `keepAlive`/`imageRetention` ทำงานต่อเนื่อง
+
+> หมายเหตุ: ถ้า pinger พลาดหลายรอบ เครื่องจะหลับชั่วคราว (request แรกหลังตื่นช้า ~30-60 วิ) แล้วกลับมาปกติเอง
+
+### R5 ตั้ง CORS (ทำหลังได้ URL Vercel — คู่กับข้อ 7️⃣) 🟢 `[คุณทำ]`
+Render Dashboard → service → **Environment** → แก้ `CORS_ORIGIN` = domain Vercel (ไม่มี `/` ท้าย) → service จะ redeploy เอง
+
+---
+
 ## 5️⃣ Frontend → Vercel
 
 ### 5.1 ติดตั้ง + login CLI 🟢 `[คุณทำ]`

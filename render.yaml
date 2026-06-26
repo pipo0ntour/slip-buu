@@ -1,0 +1,36 @@
+# Render Blueprint — deploy backend (Express API) บน Render free tier
+# Render อ่านไฟล์นี้อัตโนมัติเมื่อสร้าง Blueprint จาก repo (New + → Blueprint)
+#
+# ⚠️ free tier "หลับ" หลังไม่มี request 15 นาที (cold start ~30-60 วิ)
+#    กันหลับด้วย uptime pinger จากภายนอก เคาะ GET / ทุก ~10 นาที — ดูขั้นตอนใน DEPLOY.md
+#    พอไม่หลับ → process รันค้าง → keepAlive + imageRetention (setInterval) ทำงานปกติ ไม่ต้องแยกเป็น cron
+services:
+  - type: web
+    name: slip-buu-api
+    runtime: node
+    plan: free
+    region: singapore        # ใกล้ไทยสุด ลด latency (ถ้า free ไม่รองรับ region นี้ เปลี่ยนใน dashboard ได้)
+    rootDir: backend         # โค้ด backend อยู่ในโฟลเดอร์นี้ (build/start รันที่นี่)
+    buildCommand: npm ci     # มี package-lock.json → ci เร็ว+เป๊ะกว่า install
+    startCommand: node src/app.js
+    healthCheckPath: /        # GET / → {"ok":true} (ไม่ผ่าน lineAuth) ใช้เช็ค deploy สำเร็จ
+    autoDeploy: true          # push เข้า main แล้ว deploy เอง
+    envVars:
+      # ── ค่าลับ: ตั้งเองใน Render dashboard (sync:false = ไม่ commit ลง repo) ──
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: LINE_LOGIN_CHANNEL_ID
+        sync: false
+      - key: CORS_ORIGIN          # = domain Vercel (ไม่มี / ท้าย) เว้นว่าง = อนุญาตทุก origin
+        sync: false
+      # ── ไม่บังคับ: OCR fallback ผ่าน Groq เมื่อ Gemini โควต้าเต็ม (เว้นว่างได้) ──
+      - key: GROQ_API_KEYS
+        sync: false
+      # ── pin Node ให้ตรง engines (>=20) — กัน Render เลือกเวอร์ชันอื่น ──
+      - key: NODE_VERSION
+        value: "20"
+    # หมายเหตุ: ห้ามตั้ง PORT เอง — Render กำหนดให้อัตโนมัติ (โค้ดอ่าน process.env.PORT)
