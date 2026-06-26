@@ -1,6 +1,6 @@
 import express from 'express'
 import multer from 'multer'
-import { ocrSlip, ocrNote, parseNoteText } from '../services/gemini.js'
+import { ocrDocument, ocrNote, parseNoteText } from '../services/gemini.js'
 import { compressImage, OCR_PRESET, STORAGE_PRESET, imageFileFilter } from '../services/image.js'
 import { hashBuffer, checkByHash, checkByRefNo } from '../services/duplicate.js'
 import { supabase } from '../services/supabase.js'
@@ -26,7 +26,7 @@ function describeDuplicate(row, reason = '') {
   }
   if (row?.amount != null) parts.push(`ยอด ${Number(row.amount).toLocaleString('th-TH')} บาท`)
   const detail = parts.length ? ` (${parts.join(' · ')})` : ''
-  return `สลิปซ้ำ${reason}${detail}`
+  return `รายการซ้ำ${reason}${detail}`
 }
 
 /**
@@ -50,10 +50,11 @@ async function processSlip(file, lineUserId, type = 'income') {
     compressImage(file.buffer, file.mimetype, STORAGE_PRESET),
   ])
 
-  // 3. OCR ด้วย Gemini — ถ้า fail ทั้งหมดให้แจ้ง error ไม่บันทึก record เปล่า
+  // 3. OCR ด้วย Gemini — อ่านได้ทั้ง "สลิปโอนเงิน" และ "ใบเสร็จ/ตั๋ว" (แยกด้วย docKind ใน call เดียว)
+  //    ถ้า fail ทั้งหมดให้แจ้ง error ไม่บันทึก record เปล่า
   let ocr
   try {
-    ocr = await ocrSlip(ocrBuffer, mimetype)
+    ocr = await ocrDocument(ocrBuffer, mimetype)
   } catch (err) {
     console.error('OCR error:', err.message)
     // แยกเคสโควต้า Gemini เต็ม (429/quota) ออกจากอ่านไม่ออกจริง — ให้ผู้ใช้รู้ว่าควรรอ ไม่ใช่ถ่ายใหม่
@@ -61,18 +62,21 @@ async function processSlip(file, lineUserId, type = 'income') {
     return {
       status: 'error',
       message: quota
-        ? 'คิวอ่านสลิปเต็มชั่วคราว กรุณารอสักครู่แล้วส่งใบนี้ใหม่'
-        : 'อ่านสลิปไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
+        ? 'คิวอ่านเต็มชั่วคราว กรุณารอสักครู่แล้วส่งใบนี้ใหม่'
+        : 'อ่านรูปไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
     }
   }
 
-  // 3. กรองรูปที่ไม่ใช่สลิป (ไม่ใช่สลิป และอ่านยอดเงินไม่ได้)
-  if (!ocr.isSlip && ocr.amount == null) {
-    return { status: 'error', message: 'ไม่พบข้อมูลสลิปในรูปนี้ กรุณาถ่ายใหม่ให้ชัดเจน' }
+  const isReceipt = ocr.docKind === 'receipt'
+
+  // 3. กรองรูปที่ไม่ใช่เอกสารการเงิน (ไม่ใช่สลิป/ใบเสร็จ หรืออ่านยอดเงินไม่ได้)
+  if (ocr.docKind === 'other' || ocr.amount == null) {
+    return { status: 'error', message: 'ไม่พบข้อมูลสลิปหรือใบเสร็จในรูปนี้ กรุณาถ่ายใหม่ให้ชัดเจน' }
   }
 
-  // 4. ตรวจซ้ำด้วยเลขอ้างอิง
-  if (ocr.referenceNo) {
+  // 4. ตรวจซ้ำด้วยเลขอ้างอิง — เฉพาะสลิป (เลขอ้างอิงการโอนนิ่งและไม่ซ้ำ)
+  //    ใบเสร็จไม่ใช้ refNo ตรวจซ้ำ (OCR เลขใบเสร็จไม่นิ่ง + อาจชนกันง่าย) — พึ่ง image hash พอ
+  if (ocr.referenceNo && !isReceipt) {
     const dupByRef = await checkByRefNo(ocr.referenceNo, lineUserId)
     if (dupByRef) {
       return { status: 'duplicate', message: describeDuplicate(dupByRef, ' — เลขอ้างอิงตรงกัน') }
@@ -93,28 +97,34 @@ async function processSlip(file, lineUserId, type = 'income') {
   }
 
   // 6. บันทึกลงฐานข้อมูล — ลองจากชุดคอลัมน์ครบสุดก่อน แล้วถอยทีละขั้นถ้า DB ยังไม่ migrate
+  //    ใบเสร็จ = รายจ่ายเสมอ (บังคับ type=expense), เก็บร้านที่ receiver_name, หมวด+สรุปสินค้าไว้ดูย้อนหลัง
+  //    + ถ้าอ่านวันที่ไม่ได้ ใช้เวลาที่อัปโหลดแทน (OCR ใบเสร็จอ่านวันที่ไม่นิ่ง — แก้ในรายการทีหลังได้)
+  const effectiveType = isReceipt ? 'expense' : type
   const baseRow = {
     line_user_id: lineUserId,
     amount: ocr.amount,
-    sender_name: ocr.senderName,
-    receiver_name: ocr.receiverName,
-    bank_name: ocr.bankName,
+    sender_name: isReceipt ? null : ocr.senderName,
+    receiver_name: isReceipt ? ocr.merchant : ocr.receiverName,
+    bank_name: isReceipt ? null : ocr.bankName,
     reference_no: ocr.referenceNo,
-    transaction_at: ocr.transactionAt,
+    transaction_at: isReceipt ? (ocr.transactionAt || new Date().toISOString()) : ocr.transactionAt,
     image_hash: imageHash,
     ocr_raw: ocr.raw,
     status: 'success',
   }
-  const extraCols = { fee: ocr.fee, sender_account: ocr.senderAccount, receiver_account: ocr.receiverAccount }
+  // คอลัมน์เสริม (DB migration ≥003): receipt เก็บหมวด/สรุปสินค้า/source, slip เก็บค่าธรรมเนียม/เลขบัญชี
+  const extraCols = isReceipt
+    ? { category: ocr.category, note: ocr.itemsSummary, source: 'receipt' }
+    : { fee: ocr.fee, sender_account: ocr.senderAccount, receiver_account: ocr.receiverAccount }
   const legacyImageUrl = imagePath
     ? supabase.storage.from('slips').getPublicUrl(imagePath).data.publicUrl
     : null
 
   const attempts = [
     // DB ปัจจุบัน (migration 004): เก็บ path สำหรับออก signed URL
-    { ...baseRow, ...extraCols, type, image_path: imagePath },
+    { ...baseRow, ...extraCols, type: effectiveType, image_path: imagePath },
     // DB ที่มีถึง 003 (ยังไม่มี image_path): ต้องไม่ทำ type หาย — เก็บ public URL แบบเดิมไปก่อน
-    { ...baseRow, ...extraCols, type, image_url: legacyImageUrl },
+    { ...baseRow, ...extraCols, type: effectiveType, image_url: legacyImageUrl },
     // DB เก่าสุด: คอลัมน์พื้นฐานเท่านั้น (ข้อมูลเต็มยังอยู่ใน ocr_raw)
     { ...baseRow, image_url: legacyImageUrl },
   ]
@@ -131,19 +141,32 @@ async function processSlip(file, lineUserId, type = 'income') {
     return { status: 'error', message: 'บันทึกข้อมูลไม่สำเร็จ' }
   }
 
+  // data สำหรับ ResultSummary ฝั่ง client (ใช้ senderName เป็นหัวข้อ, bank เป็นบรรทัดรอง)
+  //   ใบเสร็จ: หัวข้อ = ชื่อร้าน, บรรทัดรอง = หมวด | สลิป: หัวข้อ = ผู้โอน, บรรทัดรอง = ธนาคาร
   return {
     status: 'success',
-    message: 'บันทึกสลิปสำเร็จ',
-    data: {
-      amount: ocr.amount,
-      type,
-      senderName: ocr.senderName,
-      receiverName: ocr.receiverName,
-      bank: ocr.bankName,
-      referenceNo: ocr.referenceNo,
-      transactionAt: ocr.transactionAt,
-      fee: ocr.fee,
-    },
+    message: isReceipt ? 'บันทึกใบเสร็จสำเร็จ' : 'บันทึกสลิปสำเร็จ',
+    data: isReceipt
+      ? {
+          amount: ocr.amount,
+          type: 'expense',
+          docKind: 'receipt',
+          senderName: ocr.merchant || 'ใบเสร็จ',
+          bank: ocr.category || 'ใบเสร็จ',
+          referenceNo: ocr.referenceNo,
+          transactionAt: baseRow.transaction_at,
+        }
+      : {
+          amount: ocr.amount,
+          type,
+          docKind: 'slip',
+          senderName: ocr.senderName,
+          receiverName: ocr.receiverName,
+          bank: ocr.bankName,
+          referenceNo: ocr.referenceNo,
+          transactionAt: ocr.transactionAt,
+          fee: ocr.fee,
+        },
   }
 }
 

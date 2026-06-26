@@ -1,2 +1,5 @@
 node_modules
 .env
+
+# รูปใบเสร็จ/สลิปตัวอย่างสำหรับเทส OCR (scripts/doc-live.mjs) — ข้อมูลส่วนตัว ห้าม commit
+receipt-samples/
