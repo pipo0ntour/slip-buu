@@ -1,7 +1,6 @@
 import { Trash2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CATEGORIES } from '@/components/TransactionForm'
-import { categoryMeta } from '@/lib/finance'
 import { guessCategory } from '@/lib/categorize'
 
 // รายการที่ AI แตกออกมา (จากถ่ายโน้ต หรือ พิมพ์/พูด) — แก้/ลบ/เพิ่มได้ก่อนบันทึก
@@ -33,6 +32,10 @@ export default function ItemsReview({ items, setItems }) {
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">ทวน/แก้รายการ แล้วกดบันทึก ({validCount} รายการ)</p>
+      {/* รายการหมวดสำหรับช่องด้านล่าง — เลือกจากนี้ หรือพิมพ์หมวดเองก็ได้ */}
+      <datalist id="slipbuu-categories">
+        {CATEGORIES.map((c) => <option key={c} value={c} />)}
+      </datalist>
       {items.map((it, i) => {
         const isExpense = it.type === 'expense'
         return (
@@ -79,17 +82,14 @@ export default function ItemsReview({ items, setItems }) {
               />
               <span className="text-sm text-muted-foreground shrink-0">บาท</span>
             </div>
-            {/* หมวด — เดาให้จากรายละเอียดอัตโนมัติ เปลี่ยนเองได้ */}
-            <select
+            {/* หมวด — เดาให้อัตโนมัติ เลือกจากลิสต์หรือพิมพ์เองได้ (datalist) */}
+            <input
+              list="slipbuu-categories"
               value={it.category || ''}
               onChange={(e) => updateItem(i, { category: e.target.value, categoryTouched: true })}
-              className="w-full h-10 rounded-lg border border-input bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <option value="">ไม่ระบุหมวด</option>
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>{categoryMeta(c).emoji} {c}</option>
-              ))}
-            </select>
+              placeholder="หมวด (เลือกหรือพิมพ์เอง)"
+              className="w-full h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
           </div>
         )
       })}
