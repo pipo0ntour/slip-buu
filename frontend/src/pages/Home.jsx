@@ -4,6 +4,7 @@ import { Camera, ImagePlus, X, CheckCircle, AlertTriangle, XCircle, Plus, Notebo
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/context/ToastContext'
 import { apiPostForm } from '@/lib/api'
+import { decodeQrFromFile } from '@/lib/qr'
 import AddSheet from '@/components/AddSheet'
 import NoteScan from '@/components/NoteScan'
 import CartoonAvatar from '@/components/CartoonAvatar'
@@ -92,6 +93,10 @@ export default function Home({ profile }) {
         const form = new FormData()
         form.append('type', uploadType)
         form.append('images', items[i].file)
+
+        // อ่าน QR ของสลิปในเครื่องก่อนส่ง — ถ้าซ้ำ backend ข้าม OCR (Gemini) ได้เลย ประหยัดค่า AI
+        const qrPayload = await decodeQrFromFile(items[i].file)
+        if (qrPayload) form.append('qrPayload', qrPayload)
 
         // แนบรูป local ของใบนี้ไปกับผลลัพธ์ — ผู้ใช้กดดูได้ว่าใบไหนซ้ำ/ผิดพลาด
         const imageUrl = items[i].imageUrl

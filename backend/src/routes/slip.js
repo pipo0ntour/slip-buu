@@ -2,7 +2,7 @@ import express from 'express'
 import multer from 'multer'
 import { ocrDocument, ocrNote, parseNoteText } from '../services/gemini.js'
 import { compressImage, OCR_PRESET, STORAGE_PRESET, imageFileFilter } from '../services/image.js'
-import { hashBuffer, checkByHash, checkByRefNo } from '../services/duplicate.js'
+import { hashBuffer, checkByHash, checkByRefNo, checkByQr } from '../services/duplicate.js'
 import { supabase } from '../services/supabase.js'
 import { attachSignedImageUrls, storagePathOf } from '../services/storage.js'
 import { upsertUser } from '../services/users.js'
@@ -34,12 +34,22 @@ function describeDuplicate(row, reason = '') {
  * คืนค่า object สำหรับตอบกลับ client (มี status + data)
  * @param {'income'|'expense'} type ทิศทางเงินของสลิปชุดนี้ (ผู้ใช้เลือกตอนอัปโหลด)
  */
-async function processSlip(file, lineUserId, type = 'income') {
+async function processSlip(file, lineUserId, type = 'income', qrPayload = null) {
   // 1. ตรวจซ้ำด้วย image hash ของไฟล์ต้นฉบับ (จับการอัปโหลดรูปเดิมซ้ำได้แม่นสุด)
   const imageHash = hashBuffer(file.buffer)
   const dupByHash = await checkByHash(imageHash, lineUserId)
   if (dupByHash) {
     return { status: 'duplicate', message: describeDuplicate(dupByHash) }
+  }
+
+  // 1.5 ตรวจซ้ำด้วย QR ของสลิป (อ่าน on-device ฝั่ง client) — ก่อนบีบอัด/อัปโหลด/OCR
+  //     ถ้าซ้ำ จะ "ข้าม Gemini" ได้เลย = ประหยัดค่า AI + เช็คซ้ำแม่นแม้ถ่าย/ครอปสลิปเดิมใหม่
+  const qrRef = (qrPayload || '').trim() || null
+  if (qrRef) {
+    const dupByQr = await checkByQr(qrRef, lineUserId)
+    if (dupByQr) {
+      return { status: 'duplicate', message: describeDuplicate(dupByQr, ' — QR สลิปตรงกัน') }
+    }
   }
 
   // 2. บีบอัด + หมุนรูปตาม EXIF แยก 2 เวอร์ชัน (ทำพร้อมกัน):
@@ -121,7 +131,9 @@ async function processSlip(file, lineUserId, type = 'income') {
     : null
 
   const attempts = [
-    // DB ปัจจุบัน (migration 004): เก็บ path สำหรับออก signed URL
+    // DB ล่าสุด (migration 007): เก็บ qr_ref ไว้เช็คซ้ำด้วย QR ในรอบหน้า
+    { ...baseRow, ...extraCols, type: effectiveType, image_path: imagePath, qr_ref: qrRef },
+    // DB migration 004 (ยังไม่มี qr_ref): เก็บ path สำหรับออก signed URL
     { ...baseRow, ...extraCols, type: effectiveType, image_path: imagePath },
     // DB ที่มีถึง 003 (ยังไม่มี image_path): ต้องไม่ทำ type หาย — เก็บ public URL แบบเดิมไปก่อน
     { ...baseRow, ...extraCols, type: effectiveType, image_url: legacyImageUrl },
@@ -545,6 +557,8 @@ router.post('/upload-batch', rateLimitByUser, upload.array('images', 10), async 
 
   // ทิศทางเงินของสลิปชุดนี้ — ผู้ใช้เลือกตอนอัปโหลด (ค่าอื่น/ไม่ส่ง = รายรับ ตามพฤติกรรมเดิม)
   const type = req.body.type === 'expense' ? 'expense' : 'income'
+  // QR ที่ client ถอดมาแล้ว (on-device) — ส่งทีละใบเหมือนไฟล์ (1 รูป/request) ใช้กันสลิปซ้ำก่อนเรียก OCR
+  const qrPayload = typeof req.body.qrPayload === 'string' ? req.body.qrPayload : null
 
   // ต้องมี user ก่อน insert slip (กัน FK violation) + เก็บโปรไฟล์ล่าสุด
   await upsertUser(req.lineUser)
@@ -552,7 +566,7 @@ router.post('/upload-batch', rateLimitByUser, upload.array('images', 10), async 
   const results = []
   for (const file of files) {
     try {
-      results.push(await processSlip(file, lineUserId, type))
+      results.push(await processSlip(file, lineUserId, type, qrPayload))
     } catch (err) {
       console.error('Batch item error:', err)
       results.push({ status: 'error', message: 'เกิดข้อผิดพลาด' })

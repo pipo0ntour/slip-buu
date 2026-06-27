@@ -26,6 +26,26 @@ export async function checkByHash(imageHash, lineUserId) {
   return data[0] || null
 }
 
+// ตรวจซ้ำด้วย payload ของ QR บนสลิป (อ่าน on-device ฝั่ง client) — เรียกก่อน OCR เพื่อ "ข้าม Gemini" ถ้าซ้ำ
+// QR ของสลิปไทยไม่ซ้ำกันต่อธุรกรรม จึงเป็นกุญแจเช็คซ้ำที่แม่น และจับ "ถ่าย/ครอปสลิปเดิมใหม่" ได้ดีกว่า image hash
+export async function checkByQr(qrPayload, lineUserId) {
+  const qr = (qrPayload || '').trim()
+  if (qr.length < 12 || !lineUserId) return null
+  const { data, error } = await supabase
+    .from('slips')
+    .select(DUP_COLS)
+    .eq('line_user_id', lineUserId)
+    .eq('qr_ref', qr)
+    .limit(1)
+  if (error) {
+    // คอลัมน์ qr_ref ยังไม่ถูก migrate → อย่าให้พัง แค่ข้ามการเช็ค QR (ตกไปใช้ image hash + OCR ตามเดิม)
+    if (/column|could not find|schema cache/i.test(error.message)) return null
+    console.error('checkByQr error:', error.message)
+    return null
+  }
+  return data[0] || null
+}
+
 export async function checkByRefNo(referenceNo, lineUserId) {
   // ข้ามค่าว่าง/สั้นเกินไป — กัน false positive จากเลขอ้างอิงที่อ่านมาไม่ครบ
   const ref = (referenceNo || '').trim()
