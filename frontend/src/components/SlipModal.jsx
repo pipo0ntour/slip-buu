@@ -182,6 +182,14 @@ export default function SlipModal({ slip, toast, onSaved, onDeleted, onClose }) 
                     </button>
                   ))}
                 </div>
+                {/* หรือพิมพ์หมวดเอง — เก็บเป็น free text */}
+                <input
+                  type="text"
+                  value={form.category}
+                  onChange={e => setField('category', e.target.value)}
+                  placeholder="หรือพิมพ์หมวดเอง เช่น ค่าการตลาด"
+                  className="mt-2 w-full h-10 rounded-xl border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
               </div>
 
               <Field label="โน้ต (ค่าอะไร)" value={form.note} onChange={v => setField('note', v)} />
