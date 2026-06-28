@@ -13,10 +13,10 @@ const TABS = [
 export default function TabBar() {
   const { pathname } = useLocation()
 
-  // /goals เป็นหน้าย่อยของ "ฉัน" → ให้แท็บฉันสว่างค้างไว้ ไม่ให้ดูเหมือนหลุดหน้า
+  // /goals, /budget เป็นหน้าย่อยของ "ฉัน" → ให้แท็บฉันสว่างค้างไว้ ไม่ให้ดูเหมือนหลุดหน้า
   const isActive = (to) => {
     if (to === '/') return pathname === '/'
-    if (to === '/me') return pathname === '/me' || pathname === '/goals'
+    if (to === '/me') return pathname === '/me' || pathname === '/goals' || pathname === '/budget'
     return pathname === to
   }
 

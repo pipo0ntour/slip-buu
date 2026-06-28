@@ -11,6 +11,7 @@ const Search = lazy(() => import('./pages/Search'))
 const Insights = lazy(() => import('./pages/Insights'))
 const Profile = lazy(() => import('./pages/Profile'))
 const Goals = lazy(() => import('./pages/Goals'))
+const Budget = lazy(() => import('./pages/Budget'))
 
 const LIFF_ID = import.meta.env.VITE_LIFF_ID
 
@@ -38,6 +39,7 @@ export default function App() {
             <Route path="/insights" element={<Insights />} />
             <Route path="/me" element={<Profile profile={profile} />} />
             <Route path="/goals" element={<Goals />} />
+            <Route path="/budget" element={<Budget />} />
           </Routes>
         </Suspense>
         <TabBar />
