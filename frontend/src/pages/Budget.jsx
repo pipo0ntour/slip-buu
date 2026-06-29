@@ -16,6 +16,7 @@ import {
 import { bkkToday, anchorParam, anchorLabel } from '@/lib/period'
 import { loadBudgets, saveBudgets, clearBudgets } from '@/lib/budgetStore'
 import SessionExpiredCard from '@/components/SessionExpiredCard'
+import GradientHeader from '@/components/GradientHeader'
 
 // ตั้งงบได้เฉพาะหมวด "รายจ่าย" — ตัด 'เงินเดือน' (รายรับ) ออก
 const BUDGET_CATEGORIES = CATEGORIES.filter((c) => c !== 'เงินเดือน')
@@ -103,22 +104,25 @@ export default function Budget() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground pb-24">
-      <div className="mx-auto max-w-md px-5 pt-6">
-        <header className="mb-6 flex items-center gap-3">
+    <div className="min-h-screen bg-background text-foreground pb-28">
+      <GradientHeader>
+        <header className="flex items-center gap-3">
           <button
             type="button"
             onClick={goBack}
             aria-label="ย้อนกลับ"
-            className="w-10 h-10 -ml-1 rounded-xl border border-border bg-card flex items-center justify-center shrink-0 active:bg-accent transition-colors"
+            className="w-10 h-10 -ml-1 rounded-full bg-foreground/10 flex items-center justify-center shrink-0 active:bg-foreground/20 transition-colors"
           >
             <ArrowLeft className="size-5" />
           </button>
           <div className="min-w-0">
             <h1 className="text-2xl font-bold leading-tight">งบประมาณรายเดือน</h1>
-            <p className="text-sm text-muted-foreground leading-tight">{anchorLabel(bkkToday(), 'monthly')}</p>
+            <p className="text-sm text-foreground/70 leading-tight">{anchorLabel(bkkToday(), 'monthly')}</p>
           </div>
         </header>
+      </GradientHeader>
+
+      <div className="mx-auto max-w-md px-5 -mt-5 pt-5 rounded-t-[2rem] bg-background">
 
         {/* เซสชันหมดอายุ = ดึงยอดเดือนนี้ไม่ได้ แต่ตั้ง/แก้งบยังทำได้ (เก็บในเครื่อง) */}
         {sessionExpired && <div className="mb-4"><SessionExpiredCard onRetry={load} /></div>}

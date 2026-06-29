@@ -46,6 +46,13 @@ export default {
         '3xl': 'calc(var(--radius) + 8px)',
         '4xl': 'calc(var(--radius) + 16px)',
       },
+      // เงานุ่มอมเขียว — ทุกการ์ดที่ใช้ shadow-sm/shadow/md/lg ดูลอย สะอาด ไม่ทื่อ
+      boxShadow: {
+        sm: '0 1px 2px 0 hsl(150 40% 22% / 0.04), 0 2px 8px -3px hsl(150 45% 28% / 0.07)',
+        DEFAULT: '0 2px 4px -1px hsl(150 40% 22% / 0.05), 0 6px 18px -5px hsl(150 45% 28% / 0.10)',
+        md: '0 4px 8px -2px hsl(150 40% 22% / 0.06), 0 10px 26px -6px hsl(150 45% 28% / 0.12)',
+        lg: '0 8px 16px -4px hsl(150 40% 22% / 0.08), 0 18px 42px -10px hsl(150 45% 28% / 0.14)',
+      },
       fontFamily: {
         sans: ['Sarabun', 'sans-serif'],
       },

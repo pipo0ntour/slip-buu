@@ -8,6 +8,7 @@ import { decodeQrFromFile } from '@/lib/qr'
 import AddSheet from '@/components/AddSheet'
 import NoteScan from '@/components/NoteScan'
 import CartoonAvatar from '@/components/CartoonAvatar'
+import GradientHeader from '@/components/GradientHeader'
 import { loadAvatarFace } from '@/lib/avatarStore'
 
 const MAX_FILES = 10
@@ -137,15 +138,14 @@ export default function Home({ profile }) {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground pb-24">
-      <div className="mx-auto max-w-md px-5 pt-6">
-
-        {/* Header — แตะรูปโปรไฟล์ไปหน้า "ฉัน" (จัดการอวตาร/บุคลิก/สถิติ ที่นั่น) */}
-        <header className="flex items-center gap-3 mb-6">
+    <div className="min-h-screen bg-background text-foreground pb-28">
+      {/* Header ไล่เฉด — แตะรูปโปรไฟล์ไปหน้า "ฉัน" (จัดการอวตาร/บุคลิก/สถิติ ที่นั่น) */}
+      <GradientHeader>
+        <header className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => navigate('/me')}
-            className="relative h-12 w-12 shrink-0 rounded-full active:scale-95 transition-transform"
+            className="relative h-12 w-12 shrink-0 rounded-full ring-2 ring-white/50 ring-offset-2 ring-offset-transparent active:scale-95 transition-transform"
             aria-label="ไปหน้าฉัน"
           >
             <CartoonAvatar
@@ -158,12 +158,15 @@ export default function Home({ profile }) {
             <h1 className="text-2xl font-bold leading-tight">
               {profile?.displayName || 'Slip-BUU'}
             </h1>
-            <p className="text-sm text-muted-foreground leading-tight">ส่งสลิปโอนเงิน · ใบเสร็จ/ตั๋ว</p>
+            <p className="text-sm text-foreground/70 leading-tight">ส่งสลิปโอนเงิน · ใบเสร็จ/ตั๋ว</p>
           </div>
         </header>
+      </GradientHeader>
 
-        {/* Upload Card */}
-        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <div className="mx-auto max-w-md px-5 -mt-5 pt-5 rounded-t-[2rem] bg-background">
+
+        {/* Upload Card — การ์ดพระเอกของหน้าแรก เน้นมนขึ้น + เงาเด่นกว่าการ์ดอื่น */}
+        <section className="rounded-3xl border border-border bg-card p-5 shadow-md">
           <h2 className="text-xl font-bold">อัพโหลดสลิป / ใบเสร็จ</h2>
           <p className="text-sm text-muted-foreground mt-1">{items.length} / {MAX_FILES} รายการ</p>
 
