@@ -10,7 +10,7 @@ const split = (v) => (v || '').split(',').map((s) => s.trim()).filter(Boolean)
 
 const GEMINI_MODELS = split(process.env.GEMINI_MODELS).length
   ? split(process.env.GEMINI_MODELS)
-  // Lite เป็นรุ่นหลัก (input ถูกกว่า ~3x, output ~6x) — ocrDocument จะ escalate ไป Flash เองตอนผลอ่อน
+  // Lite เป็นรุ่นหลัก (input ถูกกว่า ~3x, output ~6x) — ocrDocument จะ escalate ไป Flash เองตอนผลอ่อน/เป็นใบเสร็จ
   : ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash']
 const GEMINI_RPM = Math.max(1, Number(process.env.GEMINI_MAX_RPM) || 4)
 
@@ -325,6 +325,13 @@ function summarizeItems(items) {
 // ผลอ่อน: AI บอกว่าเป็นสลิป/ใบเสร็จ แต่ดึง "ยอดเงิน" ไม่ได้ — สัญญาณว่าอ่านพลาด ควร escalate ไปรุ่นแม่นกว่า
 const isWeakDoc = (r) => !!r && r.docKind !== 'other' && toNumber(r.amount) == null
 
+// ควรยกระดับไป Flash หรือไม่:
+//  - ผลอ่อน (อ่านยอดไม่ได้) ทั้งสลิปและใบเสร็จ
+//  - "ใบเสร็จ" เสมอ — จากการเทสจริง Lite พลาดยอดสุทธิบ่อย (ไปหยิบยอดก่อนหักส่วนลด/ยอดที่ประหยัด)
+//    และตกรายการสินค้า; ใบเสร็จซับซ้อนกว่าสลิปมาก จึงคุ้มที่จะจ่ายค่า Flash เพื่อความแม่น
+//    (สลิปโครงสร้างชัด ยอดเดียว → Lite เอาอยู่ คงราคาถูกไว้ และใบเสร็จเป็นส่วนน้อยของทราฟฟิก)
+const needsStrong = (r) => isWeakDoc(r) || r?.docKind === 'receipt'
+
 /**
  * อ่านเอกสารการเงิน (สลิป หรือ ใบเสร็จ/ตั๋ว) ด้วย Gemini/Groq — แยกชนิดด้วย docKind ใน call เดียว
  * หมุนหลาย backend อัตโนมัติเมื่อโควต้า free tier ของตัวหลักเต็ม — ดู backends ด้านบน
@@ -336,13 +343,14 @@ const isWeakDoc = (r) => !!r && r.docKind !== 'other' && toNumber(r.amount) == n
  */
 export async function ocrDocument(imageBuffer, mimeType = 'image/jpeg') {
   const payload = { promptText: PROMPT, imageBase64: imageBuffer.toString('base64'), mimeType }
-  let raw = await generateWithFallback(payload) // รุ่นหลัก = Flash-Lite (ถูกสุด)
+  let raw = await generateWithFallback(payload) // รุ่นหลัก = Flash-Lite (ถูกสุด) ใช้คัดชนิด + อ่านสลิป
 
-  // ผลอ่อน (เป็นเอกสารแต่อ่านยอดไม่ได้) → ลองซ้ำด้วย Flash (แม่นกว่า) 1 ครั้ง
-  // ส่วนใหญ่ Lite ผ่านอยู่แล้ว → escalation เกิดไม่บ่อย ยังประหยัดโดยรวม
-  if (isWeakDoc(raw)) {
+  // ยกระดับไป Flash เมื่อจำเป็น (ผลอ่อน หรือ เป็นใบเสร็จ — ดู needsStrong)
+  // สลิปทั่วไปไม่เข้าเงื่อนไข จึงยังจบที่ Lite ราคาถูก
+  if (needsStrong(raw)) {
     try {
       const strong = JSON.parse(await callGemini('gemini-2.5-flash', payload))
+      // ใช้ผล Flash เมื่ออ่านยอดได้ — กัน Flash พลาด/ติดโควต้าแล้วทับผลที่ Lite อ่านได้
       if (!isWeakDoc(strong)) raw = strong
     } catch { /* คงผลจากรุ่นถูกไว้ ถ้า Flash พลาด/ติดโควต้า */ }
   }
