@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Camera, ImagePlus, X, CheckCircle, AlertTriangle, XCircle, Plus, NotebookPen } from 'lucide-react'
+import { Camera, ImagePlus, X, CheckCircle, AlertTriangle, XCircle, Plus, NotebookPen, ShoppingBag } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/context/ToastContext'
 import { apiPostForm } from '@/lib/api'
@@ -18,6 +18,7 @@ export default function Home({ profile }) {
   const toast = useToast()
   const cameraRef = useRef(null)
   const galleryRef = useRef(null)
+  const productCamRef = useRef(null) // กล้องสำหรับ "ถ่ายรูปสินค้า" → เปิดฟอร์มกรอกละเอียดพร้อมรูป
   const [items, setItems] = useState([])
   const [uploadType, setUploadType] = useState('income') // ทิศทางเงินของสลิปชุดนี้: 'income' | 'expense'
   const [loading, setLoading] = useState(false)
@@ -25,6 +26,7 @@ export default function Home({ profile }) {
   const [results, setResults] = useState(null)
   const [showManual, setShowManual] = useState(false)
   const [showNote, setShowNote] = useState(false) // ฟอร์มถ่ายโน้ต → สรุปรายการ
+  const [productImage, setProductImage] = useState(null) // รูปสินค้าที่เพิ่งถ่าย → ส่งเข้าฟอร์มกรอกละเอียด
   const [avatarFace] = useState(loadAvatarFace) // อวตารที่เก็บไว้ (โหลดตอน mount; จัดการในหน้า "ฉัน")
   const [previewUrl, setPreviewUrl] = useState(null) // รูปสลิปที่กดดูจากรายการผลลัพธ์
 
@@ -58,6 +60,7 @@ export default function Home({ profile }) {
     const isExpense = data.type === 'expense'
     const item = {
       status: 'success',
+      imageUrl: data.image_url || undefined, // รูปสินค้าที่แนบ (signed URL) — ให้ผลล่าสุดกดดูรูปได้
       data: {
         senderName: data.note || data.sender_name || data.category || (isExpense ? 'รายจ่าย' : 'รายรับ'),
         bank: data.category || (isExpense ? 'รายจ่าย' : 'รายรับ'),
@@ -260,28 +263,39 @@ export default function Home({ profile }) {
           )}
         </section>
 
-        {/* ถ่ายโน้ต (coral) + เพิ่มรายการเอง (teal) — ไทล์คู่ ไอคอนบน/ข้อความล่าง */}
-        <div className="grid grid-cols-2 gap-3 mt-4">
+        {/* ทางลัดเพิ่มรายการ — ถ่ายโน้ต / เพิ่มเอง / ถ่ายรูปสินค้า (ไอคอนบน/ข้อความล่าง) */}
+        <div className="grid grid-cols-3 gap-3 mt-4">
           <button
             type="button"
             onClick={() => setShowNote(true)}
-            className="rounded-2xl border border-coral/30 bg-coral/[0.06] p-4 flex flex-col items-center gap-2 transition-transform active:scale-[0.98]"
+            className="rounded-2xl border border-coral/30 bg-coral/[0.06] p-3 flex flex-col items-center gap-2 transition-transform active:scale-[0.98]"
           >
             <span className="w-11 h-11 rounded-xl bg-coral/15 flex items-center justify-center">
               <NotebookPen className="size-5 text-coral" />
             </span>
-            <span className="text-sm font-semibold text-coral">ถ่ายโน้ต</span>
+            <span className="text-xs font-semibold text-coral leading-tight text-center">ถ่ายโน้ต</span>
           </button>
 
           <button
             type="button"
             onClick={() => setShowManual(true)}
-            className="rounded-2xl border border-primary/25 bg-primary/[0.06] p-4 flex flex-col items-center gap-2 transition-transform active:scale-[0.98]"
+            className="rounded-2xl border border-primary/25 bg-primary/[0.06] p-3 flex flex-col items-center gap-2 transition-transform active:scale-[0.98]"
           >
             <span className="w-11 h-11 rounded-xl bg-primary/[0.12] flex items-center justify-center">
               <Plus className="size-5 text-primary" />
             </span>
-            <span className="text-sm font-semibold text-primary">เพิ่มรายการ</span>
+            <span className="text-xs font-semibold text-primary leading-tight text-center">เพิ่มรายการ</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => productCamRef.current?.click()}
+            className="rounded-2xl border border-sky-500/30 bg-sky-500/[0.06] p-3 flex flex-col items-center gap-2 transition-transform active:scale-[0.98]"
+          >
+            <span className="w-11 h-11 rounded-xl bg-sky-500/15 flex items-center justify-center">
+              <ShoppingBag className="size-5 text-sky-600" />
+            </span>
+            <span className="text-xs font-semibold text-sky-600 leading-tight text-center">รูปสินค้า</span>
           </button>
         </div>
 
@@ -306,7 +320,9 @@ export default function Home({ profile }) {
           toast={toast}
           onManualSaved={handleManualSaved}
           onMultiSaved={handleNoteSaved}
-          onClose={() => setShowManual(false)}
+          initialTab={productImage ? 'form' : 'text'}
+          initialImage={productImage}
+          onClose={() => { setShowManual(false); setProductImage(null) }}
         />
       )}
 
@@ -322,6 +338,9 @@ export default function Home({ profile }) {
         onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
       <input ref={galleryRef} type="file" accept="image/*" multiple className="hidden"
         onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
+      {/* ถ่ายรูปสินค้า → เปิดฟอร์มกรอกละเอียด (แท็บ form) พร้อมรูปที่ถ่าย */}
+      <input ref={productCamRef} type="file" accept="image/*" capture="environment" className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { setProductImage(f); setShowManual(true) } }} />
     </div>
   )
 }

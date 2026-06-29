@@ -46,21 +46,31 @@ function pickTop(face) {
   return { top: [top], prob: 100 }
 }
 
+// "ลุค" ที่สลับได้ด้วยปุ่ม "เปลี่ยนเป็นตัวอื่น" — เปลี่ยนเฉพาะของนอกหน้า (พื้นหลัง/เสื้อ/สีเสื้อ/คิ้ว)
+// โดยคงเอกลักษณ์ (ผิว/สีผม/ทรงผม/แว่น/หนวด) ไว้ → ยังดูเป็นคนเดิม แค่ลุคต่างออกไป
+// pool ความยาวต่างกัน → แต่ละ variant ได้คอมโบไม่ซ้ำหลายแบบ
+const BG_POOL = ['d8f3ee', 'c6f0e4', 'd6f5d6', 'ffe9c7', 'e3e9ff', 'ffd9e8', 'fde2c0']
+const CLOTHING_POOL = ['shirtCrewNeck', 'shirtScoopNeck', 'shirtVNeck', 'hoodie', 'collarAndSweater', 'blazerAndShirt', 'overall']
+const CLOTHES_COLOR_POOL = ['14b8a6', '3b82f6', 'f59e0b', 'ef4444', '8b5cf6', '0ea5e9', 'ec4899']
+const EYEBROWS_POOL = ['defaultNatural', 'default', 'flatNatural', 'raisedExcitedNatural', 'upDownNatural']
+
 // ลักษณะ → ชุด options ของ avataaars (พินค่าเป็น array เดี่ยว ๆ ให้ผลคงที่ ไม่สุ่มตาม seed)
+// face.variant = เลขลุค (กดปุ่มเปลี่ยน → +1) ค่าเริ่ม 0; ของเก่าที่ไม่มี variant = 0 (เหมือนเดิม)
 function buildOptions(face) {
   const hair = HAIR[face.hairColor] || HAIR.black
   const top = pickTop(face)
+  const v = Number.isFinite(face.variant) ? Math.max(0, Math.floor(face.variant)) : 0
 
   return {
-    seed: 'slipbuu',
-    backgroundColor: ['d8f3ee'], // ฟ้าอมเขียวอ่อน เข้าโทนแบรนด์ teal
+    seed: `slipbuu-${v}`,
+    backgroundColor: [BG_POOL[v % BG_POOL.length]],
     radius: 50,
     skinColor: [SKIN[face.skinTone] || SKIN.light],
     hairColor: [hair],
     facialHairColor: [hair],
-    eyebrows: ['defaultNatural'],
-    clothing: ['shirtCrewNeck'],
-    clothesColor: ['14b8a6'], // teal
+    eyebrows: [EYEBROWS_POOL[v % EYEBROWS_POOL.length]],
+    clothing: [CLOTHING_POOL[v % CLOTHING_POOL.length]],
+    clothesColor: [CLOTHES_COLOR_POOL[v % CLOTHES_COLOR_POOL.length]],
     top: top.top,
     topProbability: top.prob,
     accessories: ['prescription02'],
@@ -81,5 +91,19 @@ export function avatarSvg(face) {
 export function avatarDataUri(face) {
   return `data:image/svg+xml;utf8,${encodeURIComponent(avatarSvg(face))}`
 }
+
+// อวตารสำเร็จรูป — ให้เลือกได้ทันทีโดยไม่ต้องถ่ายรูป (หลากผิว/ผม/แว่น/หนวด/สีหน้า)
+// เลือกตัวไหนแล้วยังปรับ "ลุค" (เสื้อ/พื้นหลัง) ต่อในหน้าพรีวิวได้ (variant 0..5)
+export const PRESET_FACES = [
+  { skinTone: 'light',  hairColor: 'black',     hairLength: 'short',  hairStyle: 'straight', glasses: false, facialHair: 'none',      headwear: 'none', expression: 'smile',   variant: 0 },
+  { skinTone: 'fair',   hairColor: 'blonde',    hairLength: 'long',   hairStyle: 'straight', glasses: false, facialHair: 'none',      headwear: 'none', expression: 'smile',   variant: 1 },
+  { skinTone: 'medium', hairColor: 'brown',     hairLength: 'medium', hairStyle: 'wavy',     glasses: true,  facialHair: 'none',      headwear: 'none', expression: 'smile',   variant: 2 },
+  { skinTone: 'tan',    hairColor: 'darkBrown', hairLength: 'short',  hairStyle: 'curly',    glasses: false, facialHair: 'beard',     headwear: 'none', expression: 'neutral', variant: 3 },
+  { skinTone: 'brown',  hairColor: 'black',     hairLength: 'short',  hairStyle: 'coily',    glasses: false, facialHair: 'none',      headwear: 'none', expression: 'smile',   variant: 4 },
+  { skinTone: 'light',  hairColor: 'dyed',      hairLength: 'medium', hairStyle: 'bun',      glasses: false, facialHair: 'none',      headwear: 'none', expression: 'smile',   variant: 5 },
+  { skinTone: 'dark',   hairColor: 'black',     hairLength: 'long',   hairStyle: 'ponytail', glasses: false, facialHair: 'none',      headwear: 'none', expression: 'smile',   variant: 0 },
+  { skinTone: 'fair',   hairColor: 'brown',     hairLength: 'medium', hairStyle: 'straight', glasses: true,  facialHair: 'none',      headwear: 'none', expression: 'neutral', variant: 1 },
+  { skinTone: 'medium', hairColor: 'black',     hairLength: 'short',  hairStyle: 'wavy',     glasses: false, facialHair: 'moustache', headwear: 'none', expression: 'smile',   variant: 2 },
+]
 
 // หมายเหตุ: ฟังก์ชันเก็บ/โหลดอวตารอยู่ที่ avatarStore.js (แยกไว้ให้ import ได้เบา ๆ ไม่ดึง DiceBear)
