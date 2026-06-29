@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Sparkles, Target, ChevronRight } from 'lucide-react'
+import { Sparkles, Target, Wallet, ChevronRight } from 'lucide-react'
 import { useToast } from '@/context/ToastContext'
 import { apiGet } from '@/lib/api'
 import { fmtBaht, categoryLabel } from '@/lib/finance'
@@ -10,6 +10,7 @@ import PersonaCard from '@/components/PersonaCard'
 import CartoonAvatar from '@/components/CartoonAvatar'
 import StatCard from '@/components/StatCard'
 import SessionExpiredCard from '@/components/SessionExpiredCard'
+import GradientHeader from '@/components/GradientHeader'
 import { loadAvatarFace } from '@/lib/avatarStore'
 
 const AvatarMaker = lazy(() => import('@/components/AvatarMaker'))
@@ -86,30 +87,31 @@ export default function Profile({ profile }) {
   const st = stats || EMPTY_STATS
 
   return (
-    <div className="min-h-screen bg-background text-foreground pb-24">
-      <div className="mx-auto max-w-md px-5 pt-6">
-        {/* การ์ดโปรไฟล์ + อวตาร */}
-        <section className="rounded-2xl border border-border bg-card p-6 shadow-sm flex flex-col items-center text-center">
-          <button
-            type="button"
-            onClick={() => setShowAvatar(true)}
-            className="relative active:scale-95 transition-transform"
-            aria-label="สร้าง/เปลี่ยนอวตาร"
-          >
-            <CartoonAvatar face={avatarFace} fallbackUrl={profile?.pictureUrl} className="h-24 w-24 rounded-full" />
-            <span className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow ring-2 ring-card">
-              <Sparkles className="size-4" />
-            </span>
-          </button>
-          <h1 className="mt-3 text-xl font-bold">{profile?.displayName || 'ผู้ใช้ Slip-BUU'}</h1>
-          <button
-            type="button"
-            onClick={() => setShowAvatar(true)}
-            className="mt-1 text-sm font-medium text-primary"
-          >
-            {avatarFace ? 'เปลี่ยนอวตารการ์ตูน' : 'แตะเพื่อสร้างอวตารการ์ตูน'}
-          </button>
-        </section>
+    <div className="min-h-screen bg-background text-foreground pb-28">
+      {/* การ์ดโปรไฟล์ + อวตาร — อยู่บนแถบไล่เฉด (ดูเป็นหน้า "ตัวตน") */}
+      <GradientHeader className="flex flex-col items-center text-center">
+        <button
+          type="button"
+          onClick={() => setShowAvatar(true)}
+          className="relative active:scale-95 transition-transform"
+          aria-label="สร้าง/เปลี่ยนอวตาร"
+        >
+          <CartoonAvatar face={avatarFace} fallbackUrl={profile?.pictureUrl} className="h-24 w-24 rounded-full ring-4 ring-white/40" />
+          <span className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-card text-primary flex items-center justify-center shadow ring-2 ring-white/70">
+            <Sparkles className="size-4" />
+          </span>
+        </button>
+        <h1 className="mt-3 text-xl font-bold">{profile?.displayName || 'ผู้ใช้ Slip-BUU'}</h1>
+        <button
+          type="button"
+          onClick={() => setShowAvatar(true)}
+          className="mt-1 text-sm font-medium text-foreground/70"
+        >
+          {avatarFace ? 'เปลี่ยนอวตารการ์ตูน' : 'แตะเพื่อสร้างอวตารการ์ตูน'}
+        </button>
+      </GradientHeader>
+
+      <div className="mx-auto max-w-md px-5 -mt-5 pt-5 rounded-t-[2rem] bg-background">
 
         {sessionExpired ? (
           <SessionExpiredCard onRetry={retry} />
@@ -169,6 +171,22 @@ export default function Profile({ profile }) {
           <div className="text-left min-w-0 flex-1">
             <p className="text-sm font-semibold">เป้าหมายออมเงิน</p>
             <p className="text-xs text-muted-foreground">ตั้งเป้าเก็บเงินและดูความคืบหน้า</p>
+          </div>
+          <ChevronRight className="size-5 text-muted-foreground shrink-0" />
+        </button>
+
+        {/* ลิงก์ไปหน้างบประมาณรายเดือน */}
+        <button
+          type="button"
+          onClick={() => navigate('/budget')}
+          className="mt-3 w-full rounded-2xl border border-border bg-card p-4 shadow-sm flex items-center gap-3 active:bg-accent transition-colors"
+        >
+          <span className="w-11 h-11 rounded-xl bg-primary/12 flex items-center justify-center shrink-0">
+            <Wallet className="size-5 text-primary" />
+          </span>
+          <div className="text-left min-w-0 flex-1">
+            <p className="text-sm font-semibold">งบประมาณรายเดือน</p>
+            <p className="text-xs text-muted-foreground">ตั้งวงเงินแต่ละหมวดและเช็กว่าใช้เกินไหม</p>
           </div>
           <ChevronRight className="size-5 text-muted-foreground shrink-0" />
         </button>

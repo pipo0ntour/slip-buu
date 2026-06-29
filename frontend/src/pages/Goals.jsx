@@ -8,6 +8,7 @@ import { fmtBaht } from '@/lib/finance'
 import { bkkToday, anchorParam } from '@/lib/period'
 import { loadGoal, saveGoal, clearGoal } from '@/lib/goalStore'
 import SessionExpiredCard from '@/components/SessionExpiredCard'
+import GradientHeader from '@/components/GradientHeader'
 
 // เลือกมาสคอต/ข้อความตามความคืบหน้าของเป้า (เงินออมเดือนนี้เทียบเป้า)
 function mascotFor(pct) {
@@ -69,22 +70,25 @@ export default function Goals() {
   const mascot = mascotFor(pct)
 
   return (
-    <div className="min-h-screen bg-background text-foreground pb-24">
-      <div className="mx-auto max-w-md px-5 pt-6">
-        <header className="mb-6 flex items-center gap-3">
+    <div className="min-h-screen bg-background text-foreground pb-28">
+      <GradientHeader>
+        <header className="flex items-center gap-3">
           <button
             type="button"
             onClick={goBack}
             aria-label="ย้อนกลับ"
-            className="w-10 h-10 -ml-1 rounded-xl border border-border bg-card flex items-center justify-center shrink-0 active:bg-accent transition-colors"
+            className="w-10 h-10 -ml-1 rounded-full bg-foreground/10 flex items-center justify-center shrink-0 active:bg-foreground/20 transition-colors"
           >
             <ArrowLeft className="size-5" />
           </button>
           <div className="min-w-0">
             <h1 className="text-2xl font-bold leading-tight">เป้าหมายออมเงิน</h1>
-            <p className="text-sm text-muted-foreground leading-tight">ตั้งเป้าเก็บเงินของเดือนนี้</p>
+            <p className="text-sm text-foreground/70 leading-tight">ตั้งเป้าเก็บเงินของเดือนนี้</p>
           </div>
         </header>
+      </GradientHeader>
+
+      <div className="mx-auto max-w-md px-5 -mt-5 pt-5 rounded-t-[2rem] bg-background">
 
         {/* เซสชันหมดอายุ = ดึงยอดเดือนนี้ไม่ได้ แต่ตั้ง/แก้เป้ายังทำได้ (เก็บในเครื่อง) */}
         {sessionExpired && <div className="mb-4"><SessionExpiredCard onRetry={load} /></div>}

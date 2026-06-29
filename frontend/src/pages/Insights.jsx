@@ -4,6 +4,7 @@ import { fmtBahtShort, expenseByCategory, categoryMeta, categoryLabel } from '@/
 import { bkkToday, stepAnchor, anchorParam } from '@/lib/period'
 import StatCard from '@/components/StatCard'
 import SessionExpiredCard from '@/components/SessionExpiredCard'
+import GradientHeader from '@/components/GradientHeader'
 
 const MONTHS_BACK = 6
 
@@ -54,12 +55,15 @@ export default function Insights() {
   const maxBar = Math.max(1, ...months.flatMap(m => [m.income, m.expense]))
 
   return (
-    <div className="min-h-screen bg-background text-foreground pb-24">
-      <div className="mx-auto max-w-md px-5 pt-6">
-        <header className="mb-6">
+    <div className="min-h-screen bg-background text-foreground pb-28">
+      <GradientHeader>
+        <header>
           <h1 className="text-2xl font-bold leading-tight">สถิติเชิงลึก</h1>
-          <p className="text-sm text-muted-foreground leading-tight">แนวโน้มรายรับ-รายจ่าย {MONTHS_BACK} เดือนล่าสุด</p>
+          <p className="text-sm text-foreground/70 leading-tight">แนวโน้มรายรับ-รายจ่าย {MONTHS_BACK} เดือนล่าสุด</p>
         </header>
+      </GradientHeader>
+
+      <div className="mx-auto max-w-md px-5 -mt-5 pt-5 rounded-t-[2rem] bg-background">
 
         {sessionExpired ? (
           <SessionExpiredCard onRetry={load} />

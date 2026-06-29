@@ -6,6 +6,7 @@ import { categoryMeta } from '@/lib/finance'
 import { bkkToday, stepAnchor, isAtPresent, anchorParam } from '@/lib/period'
 import SlipModal from '@/components/SlipModal'
 import SessionExpiredCard from '@/components/SessionExpiredCard'
+import GradientHeader from '@/components/GradientHeader'
 
 const TYPE_FILTERS = [
   { key: 'all', label: 'ทั้งหมด' },
@@ -71,12 +72,15 @@ export default function Search() {
   }, [slips, q, type])
 
   return (
-    <div className="min-h-screen bg-background text-foreground pb-24">
-      <div className="mx-auto max-w-md px-5 pt-6">
-        <header className="mb-4">
+    <div className="min-h-screen bg-background text-foreground pb-28">
+      <GradientHeader>
+        <header>
           <h1 className="text-2xl font-bold leading-tight">ค้นหา</h1>
-          <p className="text-sm text-muted-foreground leading-tight">ค้นรายการย้อนหลังตามชื่อ/หมวด/ยอด</p>
+          <p className="text-sm text-foreground/70 leading-tight">ค้นรายการย้อนหลังตามชื่อ/หมวด/ยอด</p>
         </header>
+      </GradientHeader>
+
+      <div className="mx-auto max-w-md px-5 -mt-5 pt-5 rounded-t-[2rem] bg-background">
 
         {sessionExpired ? (
           <SessionExpiredCard onRetry={fetchSlips} />

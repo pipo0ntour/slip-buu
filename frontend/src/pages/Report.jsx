@@ -7,6 +7,7 @@ import iconPdf from '@/assets/icon-pdf.png'
 import SlipModal from '@/components/SlipModal'
 import SessionExpiredCard from '@/components/SessionExpiredCard'
 import StatCard from '@/components/StatCard'
+import GradientHeader from '@/components/GradientHeader'
 import { PERIODS, bkkToday, stepAnchor, isAtPresent, anchorParam, anchorLabel } from '@/lib/period'
 import {
   fmtBaht, fmtBahtShort, summarize, NO_CATEGORY,
@@ -131,13 +132,15 @@ export default function Report() {
   const periodLabel = PERIODS.find(p => p.key === period)?.label
 
   return (
-    <div className="min-h-screen bg-background text-foreground pb-24">
-      <div className="mx-auto max-w-md px-5 pt-6">
-
-        <header className="mb-6">
+    <div className="min-h-screen bg-background text-foreground pb-28">
+      <GradientHeader>
+        <header>
           <h1 className="text-2xl font-bold leading-tight">รายงาน</h1>
-          <p className="text-sm text-muted-foreground leading-tight">สรุปยอดสลิปโอนเงิน</p>
+          <p className="text-sm text-foreground/70 leading-tight">สรุปยอดสลิปโอนเงิน</p>
         </header>
+      </GradientHeader>
+
+      <div className="mx-auto max-w-md px-5 -mt-5 pt-5 rounded-t-[2rem] bg-background">
 
         {sessionExpired ? (
           <SessionExpiredCard onRetry={fetchReport} />

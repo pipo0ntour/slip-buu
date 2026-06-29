@@ -13,27 +13,32 @@ const TABS = [
 export default function TabBar() {
   const { pathname } = useLocation()
 
-  // /goals เป็นหน้าย่อยของ "ฉัน" → ให้แท็บฉันสว่างค้างไว้ ไม่ให้ดูเหมือนหลุดหน้า
+  // /goals, /budget เป็นหน้าย่อยของ "ฉัน" → ให้แท็บฉันสว่างค้างไว้ ไม่ให้ดูเหมือนหลุดหน้า
   const isActive = (to) => {
     if (to === '/') return pathname === '/'
-    if (to === '/me') return pathname === '/me' || pathname === '/goals'
+    if (to === '/me') return pathname === '/me' || pathname === '/goals' || pathname === '/budget'
     return pathname === to
   }
 
   return (
-    <nav className="fixed bottom-0 inset-x-0 z-30 border-t border-border bg-background/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
-      <div className="mx-auto max-w-md grid grid-cols-5">
+    <nav className="fixed bottom-0 inset-x-0 z-30 bg-secondary/95 backdrop-blur-lg rounded-t-3xl shadow-[0_-6px_24px_rgba(2,34,36,0.08)] pb-[max(0.6rem,env(safe-area-inset-bottom))]">
+      {/* แถบมินต์เต็มกว้าง ไอคอนล้วน — แท็บที่เลือก = สี่เหลี่ยมมนเขียวทึบ (ตามดีไซน์ FinWise) */}
+      <div className="mx-auto max-w-md grid grid-cols-5 px-4 pt-2.5">
         {TABS.map(({ to, label, icon: Icon }) => {
           const active = isActive(to)
           return (
             <Link
               key={to}
               to={to}
-              className="flex flex-col items-center justify-center gap-0.5 py-2 active:bg-accent transition-colors"
+              aria-label={label}
+              className="flex items-center justify-center py-1 transition-transform active:scale-90"
             >
-              <Icon className={`size-[22px] ${active ? 'text-primary' : 'text-muted-foreground'}`} />
-              <span className={`text-[10px] font-medium ${active ? 'text-primary' : 'text-muted-foreground'}`}>
-                {label}
+              <span
+                className={`flex items-center justify-center h-11 w-11 rounded-2xl transition-all ${
+                  active ? 'bg-primary text-primary-foreground shadow-sm' : 'text-foreground'
+                }`}
+              >
+                <Icon className="size-[22px]" />
               </span>
             </Link>
           )
