@@ -45,7 +45,7 @@ export default function ItemsReview({ items, setItems }) {
                 value={it.description}
                 onChange={(e) => updateItem(i, { description: e.target.value })}
                 placeholder="รายละเอียด (เช่น ค่าข้าว)"
-                className="flex-1 h-10 rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex-1 min-w-0 h-10 rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
               <button
                 type="button"
@@ -78,7 +78,7 @@ export default function ItemsReview({ items, setItems }) {
                 value={it.amount}
                 onChange={(e) => updateItem(i, { amount: e.target.value })}
                 placeholder="0.00"
-                className="flex-1 h-10 rounded-lg border border-input bg-background px-3 text-right text-base font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex-1 min-w-0 h-10 rounded-lg border border-input bg-background px-3 text-right text-base font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
               <span className="text-sm text-muted-foreground shrink-0">บาท</span>
             </div>
