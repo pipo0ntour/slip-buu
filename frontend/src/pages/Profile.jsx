@@ -197,6 +197,7 @@ export default function Profile({ profile }) {
           <AvatarMaker
             toast={toast}
             hasAvatar={!!avatarFace}
+            initialFace={avatarFace}
             onSaved={setAvatarFace}
             onClose={() => setShowAvatar(false)}
           />

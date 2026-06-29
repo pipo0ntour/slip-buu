@@ -9,18 +9,22 @@ import { storagePathOf } from './storage.js'
 // idempotent + self-healing: สแกนด้วย created_at < cutoff ทุกรอบ — แถวที่ purge แล้วจะ image คอลัมน์ว่าง
 //   จึงไม่ถูกหยิบซ้ำ และถ้า host หลับพลาดรอบ รอบถัดไปเก็บกวาดต่อเอง
 
-const DAYS = Math.max(1, Number(process.env.IMAGE_RETENTION_DAYS) || 7)
+// อายุรูปแยกตามชนิด: รูป "สินค้า" (รายการกรอกเอง source='manual') เก็บสั้นกว่า — เป็นแค่หลักฐานชั่วคราว
+//   ส่วนสลิป/ใบเสร็จเก็บนานกว่า (ไว้ย้อนตรวจ) ทั้งคู่ลบแค่ "ไฟล์รูป" แต่เก็บ "รายการ" ไว้ครบ
+const SLIP_DAYS = Math.max(1, Number(process.env.IMAGE_RETENTION_DAYS) || 7)
+const PRODUCT_DAYS = Math.max(1, Number(process.env.IMAGE_RETENTION_PRODUCT_DAYS) || 3)
 const SCAN_HOURS = Math.max(1, Number(process.env.IMAGE_RETENTION_SCAN_HOURS) || 24)
 const SCAN_INTERVAL_MS = SCAN_HOURS * 60 * 60 * 1000
 const BATCH = 200 // แถวต่อรอบย่อย — กันลบ/อัปเดตทีละมากเกินไป
 const MAX_BATCHES = 25 // เพดานต่อการสแกน 1 ครั้ง (≈ 5000 รูป) ที่เหลือรอบหน้าเก็บต่อ
 
-async function purgeOnce() {
-  const cutoff = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000).toISOString()
+// ลบรูป "กลุ่มหนึ่ง" ที่เก็บเกิน days วัน — applyFilter เลือกชนิดแถว (เช่น เฉพาะ source='manual')
+// idempotent: หยิบเฉพาะแถว image_purged_at = null + ยังมีรูป → กลุ่ม 7 วันจะไม่ชนรูปสินค้าที่กลุ่ม 3 วันลบไปแล้ว
+async function purgeGroup(label, days, applyFilter) {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
   let total = 0
   for (let i = 0; i < MAX_BATCHES; i++) {
-    // หาแถวเก่าพอ + ยังมีรูป (image_path ใหม่ หรือ legacy image_url) + ยังไม่เคย purge
-    const { data: rows, error } = await supabase
+    let q = supabase
       .from('slips')
       .select('id, image_url, image_path')
       .lt('created_at', cutoff)
@@ -28,8 +32,10 @@ async function purgeOnce() {
       .or('image_path.not.is.null,image_url.not.is.null')
       .order('created_at', { ascending: true })
       .limit(BATCH)
+    q = applyFilter(q)
+    const { data: rows, error } = await q
     if (error) {
-      console.warn('image-retention select error:', error.message)
+      console.warn(`image-retention[${label}] select error:`, error.message)
       return total
     }
     if (!rows?.length) break
@@ -39,7 +45,7 @@ async function purgeOnce() {
     if (paths.length) {
       // best-effort เหมือน DELETE route — ลบไฟล์พลาดก็ยัง mark ต่อ ไม่งั้นจะวนหยิบแถวเดิมไม่จบ
       const { error: rmErr } = await supabase.storage.from('slips').remove(paths)
-      if (rmErr) console.warn('image-retention storage remove error:', rmErr.message)
+      if (rmErr) console.warn(`image-retention[${label}] storage remove error:`, rmErr.message)
     }
 
     const { error: upErr } = await supabase
@@ -47,15 +53,22 @@ async function purgeOnce() {
       .update({ image_path: null, image_url: null, image_purged_at: new Date().toISOString() })
       .in('id', ids)
     if (upErr) {
-      console.warn('image-retention update error:', upErr.message)
+      console.warn(`image-retention[${label}] update error:`, upErr.message)
       return total
     }
 
     total += ids.length
     if (rows.length < BATCH) break
   }
-  if (total) console.log(`image-retention: ลบรูปที่เก็บเกิน ${DAYS} วันแล้ว ${total} รูป (เก็บรายการไว้ครบ)`)
+  if (total) console.log(`image-retention[${label}]: ลบรูปเกิน ${days} วันแล้ว ${total} รูป (เก็บรายการไว้ครบ)`)
   return total
+}
+
+async function purgeOnce() {
+  // 1) รูปสินค้า (กรอกเอง) — อายุสั้น 3 วัน
+  await purgeGroup('product', PRODUCT_DAYS, (q) => q.eq('source', 'manual'))
+  // 2) ที่เหลือ (สลิป/ใบเสร็จ/โน้ต) — อายุยาว 7 วัน (รูปสินค้าที่เก่ากว่า 3 วันถูกลบไปแล้ว จึงไม่ถูกหยิบซ้ำ)
+  await purgeGroup('slip', SLIP_DAYS, (q) => q)
 }
 
 /**
@@ -70,5 +83,5 @@ export function startImageRetention() {
   const run = () => purgeOnce().catch((e) => console.warn('image-retention failed:', e.message))
   setTimeout(run, 60_000).unref?.()
   setInterval(run, SCAN_INTERVAL_MS).unref?.()
-  console.log(`image-retention เปิดอยู่ — ลบรูปเกิน ${DAYS} วัน, สแกนทุก ${SCAN_HOURS} ชม.`)
+  console.log(`image-retention เปิดอยู่ — รูปสินค้า ${PRODUCT_DAYS} วัน / สลิป ${SLIP_DAYS} วัน, สแกนทุก ${SCAN_HOURS} ชม.`)
 }
