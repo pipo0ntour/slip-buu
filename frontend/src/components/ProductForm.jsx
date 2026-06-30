@@ -6,6 +6,7 @@ import { CATEGORIES } from '@/components/TransactionForm'
 
 // ── ชีต "บันทึกสินค้า" เฉพาะทาง — เปิดต่อจากการถ่ายรูปสินค้า ──
 // ตัดผู้โอน/ผู้รับออก (ไม่เกี่ยวกับสินค้า) เหลือ: ชื่อสินค้า + จำนวน × ราคา/หน่วย → ยอดรวมอัตโนมัติ
+// รูปสินค้า: ใช้ให้ AI อ่านชื่อ/หมวด/ราคาเท่านั้น (ไม่เก็บลง storage) — ตอนบันทึกไม่ส่งรูปไป
 // บันทึกผ่าน /api/slip/manual เดิม (ไม่แตะ backend): ชื่อ+จำนวนเก็บลง note เช่น "น้ำตาลทราย ×3"
 const fmt = (n) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })
 
@@ -19,8 +20,14 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
   const [image, setImage] = useState(initialImage) // รูปสินค้า (File) — มาจากกล้องตอนเลือก "รูปสินค้า"
   const [imageUrl, setImageUrl] = useState(null)   // object URL สำหรับพรีวิว
   const [saving, setSaving] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false) // AI กำลังอ่านรูปสินค้า
   const cameraRef = useRef(null)
   const galleryRef = useRef(null)
+  // จำว่าผู้ใช้แก้ฟิลด์ไหนเองแล้ว — AI จะไม่เขียนทับ (อัปเดตทันทีตอนพิมพ์ ใช้ ref กัน stale ใน async)
+  const nameTouchedRef = useRef(false)
+  const categoryTouchedRef = useRef(false)
+  const priceTouchedRef = useRef(false)
+  const analyzedRef = useRef(null) // ไฟล์ล่าสุดที่ส่งให้ AI อ่านแล้ว (กันอ่านซ้ำไฟล์เดิม)
 
   // สร้าง/คืน object URL ของรูปพรีวิวตาม image ปัจจุบัน (กัน memory leak)
   useEffect(() => {
@@ -28,6 +35,29 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
     const url = URL.createObjectURL(image)
     setImageUrl(url)
     return () => URL.revokeObjectURL(url)
+  }, [image])
+
+  // มีรูปสินค้า → ให้ AI อ่านชื่อ/หมวด/ราคา แล้วเติมให้ (เฉพาะฟิลด์ที่ผู้ใช้ยังไม่แก้เอง)
+  useEffect(() => {
+    if (!image) { setAnalyzing(false); return }
+    if (analyzedRef.current === image) return // ไฟล์นี้อ่านไปแล้ว ไม่อ่านซ้ำ
+    analyzedRef.current = image
+    let alive = true
+    setAnalyzing(true)
+    const form = new FormData()
+    form.append('image', image)
+    apiPostForm('/api/slip/analyze-product', form)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!alive || j?.status !== 'success' || !j.product?.isProduct) return
+        const p = j.product
+        if (!nameTouchedRef.current && p.name) setName(p.name)
+        if (!categoryTouchedRef.current && p.category) setCategory(p.category)
+        if (!priceTouchedRef.current && p.unitPrice != null) setUnitPrice(String(p.unitPrice))
+      })
+      .catch(() => {}) // อ่านไม่สำเร็จ = ให้ผู้ใช้กรอกเอง (เงียบ ๆ ไม่รบกวน)
+      .finally(() => { if (alive) setAnalyzing(false) })
+    return () => { alive = false }
   }, [image])
 
   const qtyNum = Number(qty)
@@ -60,7 +90,7 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
       if (note) form.append('note', note)
       if (category.trim()) form.append('category', category.trim())
       if (date) form.append('transaction_at', new Date(date).toISOString()) // เว้นว่าง → backend ใช้เวลาปัจจุบัน
-      if (image) form.append('image', image) // รูปสินค้า — backend เก็บ 1 วันแล้วลบอัตโนมัติ
+      // ไม่ส่งรูปไปเก็บ — รูปสินค้าใช้ให้ AI อ่านอย่างเดียว (ดู useEffect analyze) แล้วทิ้ง
 
       const res = await apiPostForm('/api/slip/manual', form)
       if (res.status === 401) {
@@ -135,7 +165,7 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
                 </Button>
               </div>
             )}
-            <p className="text-[11px] text-muted-foreground mt-1">เก็บไว้เป็นหลักฐาน 1 วัน แล้วลบรูปอัตโนมัติ (รายการยังอยู่)</p>
+            <p className="text-[11px] text-muted-foreground mt-1">ถ่ายเพื่อให้ AI อ่านรายละเอียดสินค้าให้</p>
           </div>
 
           {/* ประเภท: รายรับ / รายจ่าย */}
@@ -156,13 +186,21 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
             </button>
           </div>
 
-          {/* ชื่อสินค้า */}
+          {/* ชื่อสินค้า — AI เติมให้จากรูป (แก้ได้) */}
           <label className="block">
-            <span className="text-xs font-semibold text-muted-foreground">ชื่อสินค้า</span>
+            <span className="text-xs font-semibold text-muted-foreground inline-flex items-center">
+              ชื่อสินค้า
+              {analyzing && (
+                <span className="ml-2 inline-flex items-center gap-1 font-normal text-primary">
+                  <span className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  AI กำลังอ่าน…
+                </span>
+              )}
+            </span>
             <input
               value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="เช่น น้ำตาลทราย, กล่องพัสดุ"
+              onChange={e => { nameTouchedRef.current = true; setName(e.target.value) }}
+              placeholder={analyzing ? 'AI กำลังอ่านชื่อสินค้า…' : 'เช่น น้ำตาลทราย, กล่องพัสดุ'}
               autoFocus
               className="mt-1 w-full h-12 rounded-xl border border-input bg-background px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
@@ -207,7 +245,7 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
                 type="number"
                 inputMode="decimal"
                 value={unitPrice}
-                onChange={e => setUnitPrice(e.target.value)}
+                onChange={e => { priceTouchedRef.current = true; setUnitPrice(e.target.value) }}
                 placeholder="0.00"
                 className="mt-1 w-full h-12 rounded-xl border border-input bg-background px-3 text-base text-right text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
@@ -228,7 +266,7 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
                 <button
                   key={c}
                   type="button"
-                  onClick={() => setCategory(category === c ? '' : c)}
+                  onClick={() => { categoryTouchedRef.current = true; setCategory(category === c ? '' : c) }}
                   className={`h-9 px-3 rounded-full text-sm font-medium border transition-colors ${category === c ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-foreground border-border'}`}
                 >
                   {c}
@@ -238,7 +276,7 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
             <input
               type="text"
               value={category}
-              onChange={e => setCategory(e.target.value)}
+              onChange={e => { categoryTouchedRef.current = true; setCategory(e.target.value) }}
               placeholder="หรือพิมพ์หมวดเอง เช่น วัสดุ"
               className="mt-2 w-full h-10 rounded-xl border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />

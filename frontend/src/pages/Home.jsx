@@ -426,7 +426,7 @@ export default function Home({ profile }) {
                 </span>
                 <div className="text-left min-w-0 flex-1">
                   <p className="text-sm font-semibold">รูปสินค้า</p>
-                  <p className="text-xs text-muted-foreground">กรอกรายละเอียดเอง · เก็บรูป 1 วัน</p>
+                  <p className="text-xs text-muted-foreground">ถ่ายแล้ว AI กรอกให้อัตโนมัติ</p>
                 </div>
                 <ChevronRight className="size-5 text-muted-foreground shrink-0" />
               </button>
