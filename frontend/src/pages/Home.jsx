@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Camera, ImagePlus, X, CheckCircle, AlertTriangle, XCircle, Plus, NotebookPen, ShoppingBag, Receipt, Banknote, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -30,6 +30,18 @@ export default function Home({ profile }) {
   const [productImage, setProductImage] = useState(null) // รูปสินค้าที่เพิ่งถ่าย → ส่งเข้าฟอร์มกรอกละเอียด
   const [avatarFace] = useState(loadAvatarFace) // อวตารที่เก็บไว้ (โหลดตอน mount; จัดการในหน้า "ฉัน")
   const [previewUrl, setPreviewUrl] = useState(null) // รูปสลิปที่กดดูจากรายการผลลัพธ์
+
+  // คืน object URL ทั้งหมดตอน unmount (ออกจากหน้าหลังอัปโหลด) กัน memory leak —
+  // ใช้ ref สะท้อน state ล่าสุด เพราะ cleanup ของ useEffect([]) จะอ่านค่า ณ ตอน unmount
+  // (revoke ลิงก์ที่ไม่ใช่ blob เช่น signed URL ของรูปสินค้า เป็น no-op ไม่มีผลเสีย)
+  const itemsRef = useRef(items)
+  const resultsRef = useRef(results)
+  itemsRef.current = items
+  resultsRef.current = results
+  useEffect(() => () => {
+    itemsRef.current?.forEach((it) => it.imageUrl && URL.revokeObjectURL(it.imageUrl))
+    resultsRef.current?.forEach((r) => r.imageUrl && URL.revokeObjectURL(r.imageUrl))
+  }, [])
 
   function addFiles(fileList) {
     // เริ่มชุดใหม่ ล้างผลเดิม — คืน memory ของรูปที่ค้างอยู่ในผลลัพธ์รอบก่อนด้วย
@@ -66,7 +78,8 @@ export default function Home({ profile }) {
   function pickReceipt() {
     setShowCamChoice(false)
     if (items.length >= MAX_FILES) { toast({ message: `เพิ่มได้สูงสุด ${MAX_FILES} รูปต่อรอบ`, type: 'warning' }); return }
-    setUploadType('expense') // ใบเสร็จ = รายจ่ายเสมอ
+    // ไม่แตะ uploadType — ใบเสร็จระบบบังคับเป็นรายจ่ายฝั่ง backend อยู่แล้ว (toggle ใช้กับสลิปเท่านั้น)
+    // ถ้าตั้ง expense ค้างไว้ จะทำให้สลิปที่ถ่ายรอบถัดไปกลายเป็นรายจ่ายโดยไม่ตั้งใจ
     cameraRef.current?.click()
   }
   function pickProduct() {
