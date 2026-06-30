@@ -6,7 +6,7 @@ import { ManualForm } from '@/components/TransactionForm'
 // ชีต "เพิ่มรายการ" — 2 โหมดในชีตเดียว:
 //   พิมพ์/พูด (default, เร็ว, ได้หลายรายการ) | กรอกละเอียด (ฟอร์มเดิม, รายการเดียว ครบฟิลด์)
 // onMultiSaved = callback ตอนบันทึกจากพิมพ์/พูด (array), onManualSaved = ตอนบันทึกจากฟอร์ม (object เดียว)
-export default function AddSheet({ toast, onManualSaved, onMultiSaved, onClose, initialTab = 'text', initialImage = null }) {
+export default function AddSheet({ toast, onManualSaved, onMultiSaved, onClose, initialTab = 'text' }) {
   const [tab, setTab] = useState(initialTab) // 'text' = พิมพ์/พูด, 'form' = กรอกละเอียด
 
   const tabClass = (key) =>
@@ -53,7 +53,7 @@ export default function AddSheet({ toast, onManualSaved, onMultiSaved, onClose, 
         {tab === 'text' ? (
           <QuickAdd toast={toast} onSaved={onMultiSaved} onClose={onClose} />
         ) : (
-          <ManualForm toast={toast} onSaved={onManualSaved} onClose={onClose} initialImage={initialImage} />
+          <ManualForm toast={toast} onSaved={onManualSaved} onClose={onClose} />
         )}
       </div>
     </div>
