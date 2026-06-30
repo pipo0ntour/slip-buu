@@ -130,9 +130,13 @@ async function processSlip(file, lineUserId, type = 'income', qrPayload = null) 
     ? supabase.storage.from('slips').getPublicUrl(imagePath).data.publicUrl
     : null
 
+  // qr_ref ใช้เช็คซ้ำได้เฉพาะ "สลิป" (QR ตรวจสลิปไม่ซ้ำต่อธุรกรรม) — "ใบเสร็จ" มักพิมพ์ QR พร้อมเพย์/
+  // ร้านค้าแบบ static อันเดิมทุกใบ ถ้าเก็บไว้จะทำให้ใบเสร็จคนละใบจากร้านเดียวกันโดนตีว่าซ้ำ → ไม่เก็บ
+  const qrRefToStore = isReceipt ? null : qrRef
+
   const attempts = [
-    // DB ล่าสุด (migration 007): เก็บ qr_ref ไว้เช็คซ้ำด้วย QR ในรอบหน้า
-    { ...baseRow, ...extraCols, type: effectiveType, image_path: imagePath, qr_ref: qrRef },
+    // DB ล่าสุด (migration 007): เก็บ qr_ref ไว้เช็คซ้ำด้วย QR ในรอบหน้า (เฉพาะสลิป)
+    { ...baseRow, ...extraCols, type: effectiveType, image_path: imagePath, qr_ref: qrRefToStore },
     // DB migration 004 (ยังไม่มี qr_ref): เก็บ path สำหรับออก signed URL
     { ...baseRow, ...extraCols, type: effectiveType, image_path: imagePath },
     // DB ที่มีถึง 003 (ยังไม่มี image_path): ต้องไม่ทำ type หาย — เก็บ public URL แบบเดิมไปก่อน
