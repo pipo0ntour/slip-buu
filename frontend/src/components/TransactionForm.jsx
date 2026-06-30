@@ -58,7 +58,7 @@ export function ManualForm({ toast, onSaved, onClose, initialImage = null }) {
       if (note.trim()) form.append('note', note.trim())
       if (category) form.append('category', category)
       if (date) form.append('transaction_at', new Date(date).toISOString()) // เว้นว่าง → backend ใช้เวลาปัจจุบัน
-      if (image) form.append('image', image) // รูปสินค้า (ไม่บังคับ) — backend เก็บ 3 วันแล้วลบอัตโนมัติ
+      if (image) form.append('image', image) // รูปสินค้า (ไม่บังคับ) — backend เก็บ 1 วันแล้วลบอัตโนมัติ
 
       const res = await apiPostForm('/api/slip/manual', form)
       if (res.status === 401) {
@@ -87,7 +87,7 @@ export function ManualForm({ toast, onSaved, onClose, initialImage = null }) {
     <div className="flex-1 flex flex-col min-h-0">
       {/* Body */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-        {/* รูปสินค้า (ไม่บังคับ) — แนบเป็นหลักฐาน เก็บ 3 วันแล้วลบอัตโนมัติ */}
+        {/* รูปสินค้า (ไม่บังคับ) — แนบเป็นหลักฐาน เก็บ 1 วันแล้วลบอัตโนมัติ */}
         <div>
           <span className="text-xs font-semibold text-muted-foreground">รูปสินค้า (ไม่บังคับ)</span>
           {image ? (
@@ -112,7 +112,7 @@ export function ManualForm({ toast, onSaved, onClose, initialImage = null }) {
               </Button>
             </div>
           )}
-          <p className="text-[11px] text-muted-foreground mt-1">เก็บไว้เป็นหลักฐาน 3 วัน แล้วลบรูปอัตโนมัติ (รายการยังอยู่)</p>
+          <p className="text-[11px] text-muted-foreground mt-1">เก็บไว้เป็นหลักฐาน 1 วัน แล้วลบรูปอัตโนมัติ (รายการยังอยู่)</p>
         </div>
 
         {/* ประเภท: รายรับ / รายจ่าย */}

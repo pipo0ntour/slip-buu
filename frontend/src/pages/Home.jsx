@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Camera, ImagePlus, X, CheckCircle, AlertTriangle, XCircle, Plus, NotebookPen, ShoppingBag } from 'lucide-react'
+import { Camera, ImagePlus, X, CheckCircle, AlertTriangle, XCircle, Plus, NotebookPen, ShoppingBag, Receipt, Banknote, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/context/ToastContext'
 import { apiPostForm } from '@/lib/api'
@@ -26,6 +26,7 @@ export default function Home({ profile }) {
   const [results, setResults] = useState(null)
   const [showManual, setShowManual] = useState(false)
   const [showNote, setShowNote] = useState(false) // ฟอร์มถ่ายโน้ต → สรุปรายการ
+  const [showCamChoice, setShowCamChoice] = useState(false) // กด "ถ่ายรูป" → เลือกก่อน: สลิป/ใบเสร็จ/สินค้า
   const [productImage, setProductImage] = useState(null) // รูปสินค้าที่เพิ่งถ่าย → ส่งเข้าฟอร์มกรอกละเอียด
   const [avatarFace] = useState(loadAvatarFace) // อวตารที่เก็บไว้ (โหลดตอน mount; จัดการในหน้า "ฉัน")
   const [previewUrl, setPreviewUrl] = useState(null) // รูปสลิปที่กดดูจากรายการผลลัพธ์
@@ -53,6 +54,24 @@ export default function Home({ profile }) {
       URL.revokeObjectURL(prev[index].imageUrl)
       return prev.filter((_, i) => i !== index)
     })
+  }
+
+  // "ถ่ายรูป" → เลือกชนิดก่อน แล้วค่อยเปิดกล้อง/ฟอร์มตามชนิด
+  // สลิป + ใบเสร็จ ใช้ OCR เส้นเดียวกัน (addFiles) — ใบเสร็จตั้งทิศทางเป็นรายจ่ายให้เลย
+  function pickSlip() {
+    setShowCamChoice(false)
+    if (items.length >= MAX_FILES) { toast({ message: `เพิ่มได้สูงสุด ${MAX_FILES} รูปต่อรอบ`, type: 'warning' }); return }
+    cameraRef.current?.click()
+  }
+  function pickReceipt() {
+    setShowCamChoice(false)
+    if (items.length >= MAX_FILES) { toast({ message: `เพิ่มได้สูงสุด ${MAX_FILES} รูปต่อรอบ`, type: 'warning' }); return }
+    setUploadType('expense') // ใบเสร็จ = รายจ่ายเสมอ
+    cameraRef.current?.click()
+  }
+  function pickProduct() {
+    setShowCamChoice(false)
+    productCamRef.current?.click()
   }
 
   // รายการที่ผู้ใช้เพิ่มเอง (ไม่มีสลิป) — แปลงให้เข้ารูปแบบเดียวกับผลอัพโหลด แล้วเติมบนสุดของ "ผลล่าสุด"
@@ -205,8 +224,8 @@ export default function Home({ profile }) {
           <div className="grid grid-cols-2 gap-3 mt-3">
             <Button
               className="h-12 rounded-xl"
-              disabled={items.length >= MAX_FILES || loading}
-              onClick={() => cameraRef.current.click()}
+              disabled={loading}
+              onClick={() => setShowCamChoice(true)}
             >
               <Camera className="size-4" />
               ถ่ายรูป
@@ -263,8 +282,8 @@ export default function Home({ profile }) {
           )}
         </section>
 
-        {/* ทางลัดเพิ่มรายการ — ถ่ายโน้ต / เพิ่มเอง / ถ่ายรูปสินค้า (ไอคอนบน/ข้อความล่าง) */}
-        <div className="grid grid-cols-3 gap-3 mt-4">
+        {/* ทางลัดเพิ่มรายการ — ถ่ายโน้ต / เพิ่มเอง (รูปสินค้าย้ายไปอยู่ในเมนู "ถ่ายรูป" แล้ว) */}
+        <div className="grid grid-cols-2 gap-3 mt-4">
           <button
             type="button"
             onClick={() => setShowNote(true)}
@@ -285,17 +304,6 @@ export default function Home({ profile }) {
               <Plus className="size-5 text-primary" />
             </span>
             <span className="text-xs font-semibold text-primary leading-tight text-center">เพิ่มรายการ</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => productCamRef.current?.click()}
-            className="rounded-2xl border border-sky-500/30 bg-sky-500/[0.06] p-3 flex flex-col items-center gap-2 transition-transform active:scale-[0.98]"
-          >
-            <span className="w-11 h-11 rounded-xl bg-sky-500/15 flex items-center justify-center">
-              <ShoppingBag className="size-5 text-sky-600" />
-            </span>
-            <span className="text-xs font-semibold text-sky-600 leading-tight text-center">รูปสินค้า</span>
           </button>
         </div>
 
@@ -332,6 +340,76 @@ export default function Home({ profile }) {
           onSaved={handleNoteSaved}
           onClose={() => setShowNote(false)}
         />
+      )}
+
+      {/* กด "ถ่ายรูป" → เลือกก่อนว่าจะถ่ายอะไร (สลิป/ใบเสร็จ → OCR, สินค้า → ฟอร์มกรอกเอง) */}
+      {showCamChoice && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 flex items-end justify-center animate-fade-in"
+          onClick={() => setShowCamChoice(false)}
+        >
+          <div
+            className="w-full max-w-md bg-card rounded-t-3xl animate-slide-up"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="mx-auto mt-3 h-1.5 w-10 rounded-full bg-muted" />
+            <div className="flex items-center justify-between gap-3 px-5 pt-3 pb-3">
+              <p className="font-bold text-lg">ถ่ายรูปอะไร?</p>
+              <button
+                onClick={() => setShowCamChoice(false)}
+                className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0"
+              >
+                <X className="size-4 text-muted-foreground" />
+              </button>
+            </div>
+            <div className="px-5 pb-7 pt-1 space-y-2.5">
+              <button
+                type="button"
+                onClick={pickSlip}
+                className="w-full rounded-2xl border border-border bg-card p-3.5 shadow-sm flex items-center gap-3 active:bg-accent transition-colors"
+              >
+                <span className="w-11 h-11 rounded-xl bg-primary/12 flex items-center justify-center shrink-0">
+                  <Banknote className="size-5 text-primary" />
+                </span>
+                <div className="text-left min-w-0 flex-1">
+                  <p className="text-sm font-semibold">สลิปโอนเงิน</p>
+                  <p className="text-xs text-muted-foreground">อ่านยอดอัตโนมัติ · เลือกเงินเข้า/ออกได้</p>
+                </div>
+                <ChevronRight className="size-5 text-muted-foreground shrink-0" />
+              </button>
+
+              <button
+                type="button"
+                onClick={pickReceipt}
+                className="w-full rounded-2xl border border-border bg-card p-3.5 shadow-sm flex items-center gap-3 active:bg-accent transition-colors"
+              >
+                <span className="w-11 h-11 rounded-xl bg-coral/15 flex items-center justify-center shrink-0">
+                  <Receipt className="size-5 text-coral" />
+                </span>
+                <div className="text-left min-w-0 flex-1">
+                  <p className="text-sm font-semibold">ใบเสร็จ / ตั๋ว</p>
+                  <p className="text-xs text-muted-foreground">อ่านยอดอัตโนมัติ · บันทึกเป็นรายจ่าย</p>
+                </div>
+                <ChevronRight className="size-5 text-muted-foreground shrink-0" />
+              </button>
+
+              <button
+                type="button"
+                onClick={pickProduct}
+                className="w-full rounded-2xl border border-border bg-card p-3.5 shadow-sm flex items-center gap-3 active:bg-accent transition-colors"
+              >
+                <span className="w-11 h-11 rounded-xl bg-sky-500/15 flex items-center justify-center shrink-0">
+                  <ShoppingBag className="size-5 text-sky-600" />
+                </span>
+                <div className="text-left min-w-0 flex-1">
+                  <p className="text-sm font-semibold">รูปสินค้า</p>
+                  <p className="text-xs text-muted-foreground">กรอกรายละเอียดเอง · เก็บรูป 1 วัน</p>
+                </div>
+                <ChevronRight className="size-5 text-muted-foreground shrink-0" />
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden"
