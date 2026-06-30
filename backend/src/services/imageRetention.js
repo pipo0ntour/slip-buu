@@ -11,7 +11,7 @@ import { storagePathOf } from './storage.js'
 
 // อายุรูปแยกตามชนิด: รูป "สินค้า" (รายการกรอกเอง source='manual') เก็บสั้นกว่า — เป็นแค่หลักฐานชั่วคราว
 //   ส่วนสลิป/ใบเสร็จเก็บนานกว่า (ไว้ย้อนตรวจ) ทั้งคู่ลบแค่ "ไฟล์รูป" แต่เก็บ "รายการ" ไว้ครบ
-const SLIP_DAYS = Math.max(1, Number(process.env.IMAGE_RETENTION_DAYS) || 7)
+const SLIP_DAYS = Math.max(1, Number(process.env.IMAGE_RETENTION_DAYS) || 3)
 const PRODUCT_DAYS = Math.max(1, Number(process.env.IMAGE_RETENTION_PRODUCT_DAYS) || 1)
 const SCAN_HOURS = Math.max(1, Number(process.env.IMAGE_RETENTION_SCAN_HOURS) || 24)
 const SCAN_INTERVAL_MS = SCAN_HOURS * 60 * 60 * 1000
@@ -19,7 +19,7 @@ const BATCH = 200 // แถวต่อรอบย่อย — กันลบ
 const MAX_BATCHES = 25 // เพดานต่อการสแกน 1 ครั้ง (≈ 5000 รูป) ที่เหลือรอบหน้าเก็บต่อ
 
 // ลบรูป "กลุ่มหนึ่ง" ที่เก็บเกิน days วัน — applyFilter เลือกชนิดแถว (เช่น เฉพาะ source='manual')
-// idempotent: หยิบเฉพาะแถว image_purged_at = null + ยังมีรูป → กลุ่ม 7 วันจะไม่ชนรูปสินค้าที่กลุ่ม 1 วันลบไปแล้ว
+// idempotent: หยิบเฉพาะแถว image_purged_at = null + ยังมีรูป → กลุ่ม 3 วันจะไม่ชนรูปสินค้าที่กลุ่ม 1 วันลบไปแล้ว
 async function purgeGroup(label, days, applyFilter) {
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
   let total = 0
@@ -67,7 +67,7 @@ async function purgeGroup(label, days, applyFilter) {
 async function purgeOnce() {
   // 1) รูปสินค้า (กรอกเอง) — อายุสั้น 1 วัน
   await purgeGroup('product', PRODUCT_DAYS, (q) => q.eq('source', 'manual'))
-  // 2) ที่เหลือ (สลิป/ใบเสร็จ/โน้ต) — อายุยาว 7 วัน (รูปสินค้าที่เก่ากว่า 1 วันถูกลบไปแล้ว จึงไม่ถูกหยิบซ้ำ)
+  // 2) ที่เหลือ (สลิป/ใบเสร็จ/โน้ต) — อายุ 3 วัน (รูปสินค้าที่เก่ากว่า 1 วันถูกลบไปแล้ว จึงไม่ถูกหยิบซ้ำ)
   await purgeGroup('slip', SLIP_DAYS, (q) => q)
 }
 
