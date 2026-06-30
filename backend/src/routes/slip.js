@@ -1,6 +1,6 @@
 import express from 'express'
 import multer from 'multer'
-import { ocrDocument, ocrNote, parseNoteText } from '../services/gemini.js'
+import { ocrDocument, ocrNote, parseNoteText, analyzeProduct } from '../services/gemini.js'
 import { compressImage, OCR_PRESET, STORAGE_PRESET, imageFileFilter } from '../services/image.js'
 import { hashBuffer, checkByHash, checkByRefNo, checkByQr } from '../services/duplicate.js'
 import { supabase } from '../services/supabase.js'
@@ -433,6 +433,33 @@ router.post('/manual', rateLimitByUser, upload.single('image'), async (req, res)
     res.json({ status: 'success', message: 'บันทึกรายการสำเร็จ', data })
   } catch (err) {
     console.error('Manual slip error:', err)
+    res.status(500).json({ status: 'error', message: 'เกิดข้อผิดพลาด กรุณาลองใหม่' })
+  }
+})
+
+// ───────────────────── อ่านรูปสินค้า → ชื่อ/หมวด/ราคา (ช่วยกรอกฟอร์ม) ─────────────────────
+// POST /api/slip/analyze-product — รับรูปสินค้า 1 รูป → คืนชื่อ/หมวด/ราคา ให้ frontend เติมฟอร์ม (ไม่บันทึก/ไม่เก็บรูป)
+router.post('/analyze-product', rateLimitByUser, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ status: 'error', message: 'ไม่พบรูปสินค้า' })
+
+    // ย่อ/หมุนตาม EXIF ก่อนส่ง vision (คมพอให้อ่านชื่อ/ป้ายราคา) — ไม่เก็บรูปต้นฉบับ
+    const { buffer, mimetype } = await compressImage(req.file.buffer, req.file.mimetype, OCR_PRESET)
+    let product
+    try {
+      product = await analyzeProduct(buffer, mimetype)
+    } catch (err) {
+      console.error('analyzeProduct error:', err.message)
+      const quota = /429|quota|too many requests|rate limit/i.test(err.message || '')
+      return res.status(quota ? 429 : 502).json({
+        status: 'error',
+        message: quota ? 'คิว AI เต็มชั่วคราว กรุณารอสักครู่' : 'อ่านรูปสินค้าไม่สำเร็จ',
+      })
+    }
+
+    res.json({ status: 'success', product })
+  } catch (err) {
+    console.error('analyze-product route error:', err)
     res.status(500).json({ status: 'error', message: 'เกิดข้อผิดพลาด กรุณาลองใหม่' })
   }
 })

@@ -569,3 +569,49 @@ export async function analyzeFace(imageBuffer, mimeType = 'image/jpeg') {
     expression: pickEnum(raw.expression, FACE_ENUMS.expression, 'smile'),
   }
 }
+
+// ───────────── อ่านรูปสินค้า → ชื่อ/หมวด/ราคา (ช่วยกรอกฟอร์มบันทึกสินค้า) ─────────────
+const productSchema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    isProduct: { type: SchemaType.BOOLEAN, description: 'true ถ้ามีสินค้า/สิ่งของชัดเจนในรูป, false ถ้าไม่ใช่' },
+    name: { type: SchemaType.STRING, nullable: true, description: 'ชื่อสินค้าโดยย่อ ภาษาไทย เช่น "น้ำตาลทราย", "กล่องพัสดุ", "ผงซักฟอก"' },
+    category: { type: SchemaType.STRING, nullable: true, description: 'หมวด: ค่าของ|ค่าอาหาร|ค่าเดินทาง|ค่าน้ำค่าไฟ|ค่าส่ง|สุขภาพ|ค่าเช่า' },
+    unitPrice: { type: SchemaType.NUMBER, nullable: true, description: 'ราคาต่อชิ้น เฉพาะเมื่อเห็นป้ายราคาชัดเจนในรูป ไม่เห็น = null' },
+  },
+  required: ['isProduct'],
+}
+
+const PRODUCT_PROMPT = `คุณคือระบบดูรูปสินค้าแล้วบอกว่าคืออะไร เพื่อช่วยกรอกรายการซื้อของ ดูรูปแล้ว:
+- isProduct = true ถ้ามีสินค้า/สิ่งของชัดเจน, false ถ้าไม่ใช่ (วิว/คน/อื่น ๆ)
+- name = ชื่อสินค้าโดยย่อ เป็นภาษาไทย กระชับ (เช่น "น้ำตาลทราย", "กล่องพัสดุ", "ผงซักฟอก", "กาแฟ 3in1")
+  เห็นยี่ห้อชัดใส่สั้น ๆ ได้ แต่ไม่ต้องยาว
+- category = เดาหมวดรายจ่ายจากชุดนี้เท่านั้น (ใกล้สุด) ไม่เข้าเลย = null:
+  ค่าของ, ค่าอาหาร, ค่าเดินทาง, ค่าน้ำค่าไฟ, ค่าส่ง, สุขภาพ, ค่าเช่า
+  แนวทาง: ของกิน/เครื่องดื่ม = ค่าอาหาร | ของใช้/วัสดุ/บรรจุภัณฑ์/เครื่องเขียน = ค่าของ | ยา/อุปกรณ์สุขภาพ = สุขภาพ
+- unitPrice = ราคาต่อชิ้น เฉพาะเมื่อเห็น "ป้ายราคา" ชัดเจนในรูปเท่านั้น ไม่เห็นให้ null (ห้ามเดา)
+ตอบเฉพาะที่เห็นจริงในรูป`
+
+const PRODUCT_GROQ_HINT = `
+ตอบกลับเป็น JSON object เท่านั้น ห้ามมีข้อความอื่นนอก JSON:
+{"isProduct": boolean, "name": string|null, "category": string|null, "unitPrice": number|null}`
+
+/**
+ * อ่านรูปสินค้า → ชื่อ/หมวด/ราคา (หมุน backend อัตโนมัติเหมือน ocrDocument)
+ * @returns {{ isProduct:boolean, name:string|null, category:string|null, unitPrice:number|null }}
+ */
+export async function analyzeProduct(imageBuffer, mimeType = 'image/jpeg') {
+  const raw = await generateWithFallback({
+    promptText: PRODUCT_PROMPT,
+    imageBase64: imageBuffer.toString('base64'),
+    mimeType,
+    schema: productSchema,
+    groqHint: PRODUCT_GROQ_HINT,
+  })
+  return {
+    isProduct: raw.isProduct !== false,
+    name: clean(raw.name),
+    category: normalizeCategory(clean(raw.category)), // บังคับให้อยู่ในชุดหมวดมาตรฐาน (นอกชุด → null)
+    unitPrice: toNumber(raw.unitPrice),
+  }
+}
