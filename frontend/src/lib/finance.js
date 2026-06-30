@@ -60,19 +60,20 @@ export function expenseByCategory(slips) {
 
 // ── คำแนะนำการใช้จ่าย (rule-based) ─────────────────────────────────────────
 // ตีความข้อมูลรายเดือนเป็น "ข้อความบอกว่าควรลด/จับตาอะไร" — ฟรี เร็ว ไม่พึ่ง AI
-// รับ monthReports = รายงานรายเดือน "เก่า→ใหม่" (เดือนล่าสุดอยู่ท้าย) แต่ละตัวมี { slips, totalIncome, net }
+// รับ months = ข้อมูลรายเดือน "เก่า→ใหม่" (เดือนล่าสุดอยู่ท้าย) จาก /api/report/insights แต่ละตัวมี:
+//   { income, expense, net, categories:[{category, amount, count}], biggest:{name, amount}|null }
 // + budgets = { [หมวด]: วงเงิน } ที่ผู้ใช้ตั้งไว้
 // คืน [{ id, tone:'warn'|'info'|'good', emoji, text }] เรียงเร่งด่วนก่อน (เกินงบ → พุ่ง → สัดส่วน → ออม → แพงสุด)
 //
 // หมายเหตุ: เดือนล่าสุดอาจยังไม่จบเดือน → เทียบกับ "ค่าเฉลี่ยเดือนก่อน ๆ" มีโอกาส under-report (เตือนน้อยไว้ก่อน)
 // จึงตั้งเกณฑ์ให้เตือนเฉพาะที่ขึ้นชัด ๆ (≥30% และเพิ่มจริง ≥300฿) กัน noise
-export function buildAdvice(monthReports, budgets = {}) {
-  const reports = (monthReports || []).filter(Boolean)
-  if (!reports.length) return []
-  const cur = reports[reports.length - 1]
-  const prior = reports.slice(0, -1)
-  const curSlips = cur.slips || []
-  const { total: curExpense, rows: curRows } = expenseByCategory(curSlips)
+export function buildAdvice(months, budgets = {}) {
+  const list = (months || []).filter(Boolean)
+  if (!list.length) return []
+  const cur = list[list.length - 1]
+  const prior = list.slice(0, -1)
+  const curRows = (cur.categories || []).slice().sort((a, b) => b.amount - a.amount)
+  const curExpense = Number(cur.expense) || 0
   const curByCat = Object.fromEntries(curRows.map((r) => [r.category ?? NO_CATEGORY, r.amount]))
   const labelOf = (key) => (key === NO_CATEGORY ? 'ไม่ระบุหมวด' : key)
   const emojiOf = (key) => categoryMeta(key === NO_CATEGORY ? null : key).emoji
@@ -92,7 +93,7 @@ export function buildAdvice(monthReports, budgets = {}) {
   if (prior.length) {
     const priorSum = {} // หมวด → ยอดรวมทุกเดือนก่อนหน้า
     for (const r of prior) {
-      for (const row of expenseByCategory(r.slips || []).rows) {
+      for (const row of r.categories || []) {
         const k = row.category ?? NO_CATEGORY
         priorSum[k] = (priorSum[k] || 0) + row.amount
       }
@@ -121,7 +122,7 @@ export function buildAdvice(monthReports, budgets = {}) {
   }
 
   // 4) สถานะการออมเดือนนี้
-  const income = Number(cur.totalIncome) || 0
+  const income = Number(cur.income) || 0
   const net = Number(cur.net) || 0
   if (net < 0) {
     advice.push({ id: 'savings', tone: 'warn', emoji: '🏦', text: `เดือนนี้จ่ายมากกว่ารับ (ติดลบ ${fmtBahtShort(Math.abs(net))}฿)` })
@@ -132,11 +133,8 @@ export function buildAdvice(monthReports, budgets = {}) {
   }
 
   // 5) รายการเดี่ยวที่แพงสุดเดือนนี้
-  const expenses = curSlips.filter((s) => s.type === 'expense' && Number(s.amount) > 0)
-  if (expenses.length) {
-    const big = expenses.reduce((m, s) => (Number(s.amount) > Number(m.amount) ? s : m))
-    const name = (big.note || big.receiver_name || big.category || 'รายการ').toString().trim().slice(0, 24)
-    advice.push({ id: 'biggest', tone: 'info', emoji: '💸', text: `รายการแพงสุดเดือนนี้: ${name} ${fmtBahtShort(big.amount)}฿` })
+  if (cur.biggest && Number(cur.biggest.amount) > 0) {
+    advice.push({ id: 'biggest', tone: 'info', emoji: '💸', text: `รายการแพงสุดเดือนนี้: ${cur.biggest.name} ${fmtBahtShort(cur.biggest.amount)}฿` })
   }
 
   return advice

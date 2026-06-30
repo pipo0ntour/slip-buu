@@ -123,6 +123,100 @@ router.get('/', rateLimitReads, async (req, res) => {
   })
 })
 
+// ───────────────────── สถิติเชิงลึกหลายเดือน (รวบเป็น query เดียว) ─────────────────────
+// GET /api/report/insights?months=YYYY-MM-DD,YYYY-MM-DD,... (anchor รายเดือน เก่า→ใหม่)
+// เดิมหน้า Insights ยิง /api/report เดือนละ 1 ครั้ง (6 เดือน = 12 query) — รวมเหลือ "query เดียว"
+// ครอบทั้งช่วง แล้วแยกใส่รายเดือน + รวมหมวด ในหน่วยความจำ → เบาทั้งเน็ตฝั่งผู้ใช้และโหลด backend
+router.get('/insights', rateLimitReads, async (req, res) => {
+  const lineUserId = req.lineUser.userId
+
+  // anchor รายเดือนจาก client (มีตรรกะ "วันนี้ตามเวลาไทย" อยู่แล้ว) — รับเฉพาะรูปแบบ YYYY-MM-DD, สูงสุด 12 เดือน
+  const anchors = (req.query.months || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s))
+    .slice(0, 12)
+  if (!anchors.length) return res.status(400).json({ error: 'months required (YYYY-MM-DD,...)' })
+
+  // ช่วงเวลาแต่ละเดือน (ขอบตามปฏิทินไทย) เรียงตาม anchor ที่ส่งมา
+  const buckets = anchors.map((a) => {
+    const { fromIso, toIso } = computeRange('monthly', a)
+    return { fromMs: Date.parse(fromIso), toMs: Date.parse(toIso), income: 0, expense: 0, cat: new Map(), biggest: null }
+  })
+  // หน้าต่างรวม = เดือนแรกสุด→เดือนท้ายสุด (ครอบทุก bucket ด้วย query เดียว)
+  const windowFrom = new Date(Math.min(...buckets.map((b) => b.fromMs))).toISOString()
+  const windowTo = new Date(Math.max(...buckets.map((b) => b.toMs))).toISOString()
+
+  // query เดียวครอบทั้งช่วง — ดึงเฉพาะคอลัมน์ที่ใช้รวมยอด (DB เก่าไม่มี type/category → ถอยไปคอลัมน์พื้นฐาน)
+  const COLS_FULL = 'amount, type, category, note, receiver_name, transaction_at, created_at'
+  const COLS_BASE = 'amount, transaction_at, created_at'
+  let rows, error
+  for (const cols of [COLS_FULL, COLS_BASE]) {
+    ;({ data: rows, error } = await supabase
+      .from('slips')
+      .select(cols)
+      .eq('line_user_id', lineUserId)
+      .eq('status', 'success')
+      .or(effectiveRangeFilter(windowFrom, windowTo)))
+    if (!error || !/column|could not find|schema cache/i.test(error.message)) break
+  }
+  if (error) return res.status(500).json({ error: 'Database error' })
+
+  // แยกแต่ละรายการเข้าเดือนของมัน (ตาม "วันที่ทำรายการจริง") แล้วรวมยอด/หมวด/รายการแพงสุด
+  for (const s of rows || []) {
+    const eff = effectiveDate(s)
+    const b = buckets.find((b) => eff >= b.fromMs && eff < b.toMs)
+    if (!b) continue
+    const amt = Number(s.amount) || 0
+    if (amt <= 0) continue
+    if (s.type === 'expense') {
+      b.expense += amt
+      const key = s.category || NO_CATEGORY
+      const c = b.cat.get(key) || { amount: 0, count: 0 }
+      c.amount += amt
+      c.count += 1
+      b.cat.set(key, c)
+      if (!b.biggest || amt > b.biggest.amount) {
+        const name = (s.note || s.receiver_name || s.category || 'รายการ').toString().trim().slice(0, 24)
+        b.biggest = { name, amount: amt }
+      }
+    } else {
+      b.income += amt // ไม่มี type (DB เก่า) = นับเป็นรายรับ เหมือน /api/report
+    }
+  }
+
+  const catRows = (cat) =>
+    [...cat.entries()]
+      .map(([k, v]) => ({ category: k === NO_CATEGORY ? null : k, amount: v.amount, count: v.count }))
+      .sort((a, b) => b.amount - a.amount)
+
+  const months = buckets.map((b) => ({
+    income: b.income,
+    expense: b.expense,
+    net: b.income - b.expense,
+    categories: catRows(b.cat),
+    biggest: b.biggest,
+  }))
+
+  // รวมหมวดทุกเดือน → "หมวดที่จ่ายเยอะสุด" ตลอดช่วง (ให้ frontend ไม่ต้องคำนวณเอง)
+  const agg = new Map()
+  let total = 0
+  for (const b of buckets) {
+    for (const [k, v] of b.cat) {
+      const c = agg.get(k) || { amount: 0, count: 0 }
+      c.amount += v.amount
+      c.count += v.count
+      agg.set(k, c)
+      total += v.amount
+    }
+  }
+  const topRows = [...agg.entries()]
+    .map(([k, v]) => ({ category: k === NO_CATEGORY ? null : k, amount: v.amount, count: v.count, pct: total ? v.amount / total : 0 }))
+    .sort((a, b) => b.amount - a.amount)
+
+  res.json({ months, topCategories: { total, rows: topRows } })
+})
+
 // สรุปยอด "ตลอดทั้งหมด" (ไม่จำกัดช่วงเวลา) — ใช้ในหน้าโปรไฟล์ ให้ต่างจากหน้ารายงานที่อิงช่วงเวลา
 // ดึงแค่ amount/type ทุกแถวที่สำเร็จของผู้ใช้ แล้วรวมในแอป (ปริมาณต่อผู้ใช้ไม่มากในแอปนี้)
 router.get('/summary', rateLimitReads, async (req, res) => {
