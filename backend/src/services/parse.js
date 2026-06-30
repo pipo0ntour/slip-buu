@@ -75,6 +75,9 @@ export function buildTransactionAt(dateStr, timeStr, nowYear = new Date().getFul
   // safety: ปี พ.ศ. → ค.ศ.
   if (y > nowYear + 1) y -= 543
 
+  // ปีต้องสมเหตุสมผล (กัน OCR เพี้ยน เช่นปี 3 หลัก หรือปีหลุดช่วง) — นอกช่วง = อ่านไม่ได้ → null (ผู้เรียกใช้ fallback)
+  if (y < 2000 || y > nowYear + 1) return null
+
   let hh = 0, mm = 0
   if (timeStr && /^\d{1,2}:\d{2}/.test(timeStr.trim())) {
     ;[hh, mm] = timeStr.trim().split(':').map(Number)
