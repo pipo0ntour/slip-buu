@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { X, Camera, ImagePlus } from 'lucide-react'
+import { X, Camera, ImagePlus, Minus, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { apiPostForm } from '@/lib/api'
 import { CATEGORIES } from '@/components/TransactionForm'
@@ -36,6 +36,13 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
   // ยอดรวม = จำนวน × ราคา/หน่วย (ไม่กรอกจำนวน = ถือเป็น 1 หน่วย)
   const total = (Number.isFinite(unitNum) && unitNum > 0 ? unitNum : 0) * (hasQty ? qtyNum : 1)
   const canSave = total > 0 && !saving
+
+  // ปุ่ม −/+ ปรับจำนวน (ขั้นต่ำ 1) — ช่องว่างถือเป็น 1
+  const stepQty = (delta) => {
+    const cur = Number(qty)
+    const base = Number.isFinite(cur) && cur > 0 ? cur : 1
+    setQty(String(Math.max(1, base + delta)))
+  }
 
   async function handleSave() {
     if (!canSave) return
@@ -161,31 +168,50 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
             />
           </label>
 
-          {/* จำนวน + ราคา/หน่วย */}
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="text-xs font-semibold text-muted-foreground">จำนวน</span>
+          {/* จำนวน — สเต็ปเปอร์: ปุ่มลบซ้าย / ปุ่มบวกขวา / ตัวเลขอยู่กลาง (ซ่อน spinner เดิมของ browser) */}
+          <div>
+            <span className="text-xs font-semibold text-muted-foreground">จำนวน</span>
+            <div className="mt-1 flex items-center h-12 rounded-xl border border-input bg-background overflow-hidden focus-within:ring-2 focus-within:ring-ring">
+              <button
+                type="button"
+                onClick={() => stepQty(-1)}
+                aria-label="ลดจำนวน"
+                className="w-12 h-full flex items-center justify-center text-muted-foreground active:bg-accent shrink-0"
+              >
+                <Minus className="size-5" />
+              </button>
               <input
                 type="number"
-                inputMode="decimal"
+                inputMode="numeric"
                 value={qty}
                 onChange={e => setQty(e.target.value)}
                 placeholder="1"
-                className="mt-1 w-full h-12 rounded-xl border border-input bg-background px-3 text-base text-right text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="จำนวน"
+                className="flex-1 min-w-0 h-full bg-transparent text-center text-base font-semibold text-foreground focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold text-muted-foreground">ราคา/หน่วย (บาท)</span>
-              <input
-                type="number"
-                inputMode="decimal"
-                value={unitPrice}
-                onChange={e => setUnitPrice(e.target.value)}
-                placeholder="0.00"
-                className="mt-1 w-full h-12 rounded-xl border border-input bg-background px-3 text-base text-right text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </label>
+              <button
+                type="button"
+                onClick={() => stepQty(1)}
+                aria-label="เพิ่มจำนวน"
+                className="w-12 h-full flex items-center justify-center text-muted-foreground active:bg-accent shrink-0"
+              >
+                <Plus className="size-5" />
+              </button>
+            </div>
           </div>
+
+          {/* ราคา/หน่วย */}
+          <label className="block">
+            <span className="text-xs font-semibold text-muted-foreground">ราคา/หน่วย (บาท)</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              value={unitPrice}
+              onChange={e => setUnitPrice(e.target.value)}
+              placeholder="0.00"
+              className="mt-1 w-full h-12 rounded-xl border border-input bg-background px-3 text-base text-right text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+          </label>
 
           {/* ยอดรวม (จำนวน × ราคา/หน่วย) */}
           <div className="flex items-baseline justify-between rounded-xl bg-muted/50 px-4 py-3">
