@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { X, Camera, ImagePlus, Minus, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { apiPostForm } from '@/lib/api'
@@ -21,6 +21,7 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
   const [imageUrl, setImageUrl] = useState(null)   // object URL สำหรับพรีวิว
   const [saving, setSaving] = useState(false)
   const [analyzing, setAnalyzing] = useState(false) // AI กำลังอ่านรูปสินค้า
+  const [analyzeError, setAnalyzeError] = useState(null) // ข้อความเมื่ออ่านไม่สำเร็จ (กดลองใหม่ได้)
   const cameraRef = useRef(null)
   const galleryRef = useRef(null)
   // จำว่าผู้ใช้แก้ฟิลด์ไหนเองแล้ว — AI จะไม่เขียนทับ (อัปเดตทันทีตอนพิมพ์ ใช้ ref กัน stale ใน async)
@@ -28,6 +29,7 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
   const categoryTouchedRef = useRef(false)
   const priceTouchedRef = useRef(false)
   const analyzedRef = useRef(null) // ไฟล์ล่าสุดที่ส่งให้ AI อ่านแล้ว (กันอ่านซ้ำไฟล์เดิม)
+  const aliveRef = useRef(true) // กันตั้ง state หลัง modal ปิด (ระหว่างรออ่าน)
 
   // สร้าง/คืน object URL ของรูปพรีวิวตาม image ปัจจุบัน (กัน memory leak)
   useEffect(() => {
@@ -37,28 +39,51 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
     return () => URL.revokeObjectURL(url)
   }, [image])
 
-  // มีรูปสินค้า → ให้ AI อ่านชื่อ/หมวด/ราคา แล้วเติมให้ (เฉพาะฟิลด์ที่ผู้ใช้ยังไม่แก้เอง)
-  useEffect(() => {
-    if (!image) { setAnalyzing(false); return }
-    if (analyzedRef.current === image) return // ไฟล์นี้อ่านไปแล้ว ไม่อ่านซ้ำ
-    analyzedRef.current = image
-    let alive = true
+  // ส่งรูปให้ AI อ่าน — มี timeout กันค้างยาว + คืน error ให้กดลองใหม่ได้ (ไม่ปล่อยหมุนเงียบ ๆ)
+  // เติมเฉพาะฟิลด์ที่ผู้ใช้ยังไม่แก้เอง
+  const analyzeImage = useCallback(async (file) => {
+    if (!file) return
     setAnalyzing(true)
-    const form = new FormData()
-    form.append('image', image)
-    apiPostForm('/api/slip/analyze-product', form)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        if (!alive || j?.status !== 'success' || !j.product?.isProduct) return
-        const p = j.product
-        if (!nameTouchedRef.current && p.name) setName(p.name)
-        if (!categoryTouchedRef.current && p.category) setCategory(p.category)
-        if (!priceTouchedRef.current && p.unitPrice != null) setUnitPrice(String(p.unitPrice))
-      })
-      .catch(() => {}) // อ่านไม่สำเร็จ = ให้ผู้ใช้กรอกเอง (เงียบ ๆ ไม่รบกวน)
-      .finally(() => { if (alive) setAnalyzing(false) })
-    return () => { alive = false }
-  }, [image])
+    setAnalyzeError(null)
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 30000) // กันค้างตอนคิว AI เต็ม/เน็ตช้า
+    try {
+      const form = new FormData()
+      form.append('image', file)
+      const res = await apiPostForm('/api/slip/analyze-product', form, ctrl.signal)
+      const j = await res.json().catch(() => ({}))
+      if (!aliveRef.current) return
+      if (res.status === 429) { setAnalyzeError('คิว AI เต็มชั่วคราว'); return }
+      if (!res.ok || j.status !== 'success') { setAnalyzeError('อ่านอัตโนมัติไม่สำเร็จ'); return }
+      const p = j.product
+      if (!p?.isProduct || !p.name) { setAnalyzeError('ไม่พบสินค้าในรูป — กรอกเองได้เลย'); return }
+      if (!nameTouchedRef.current) setName(p.name)
+      if (!categoryTouchedRef.current && p.category) setCategory(p.category)
+      if (!priceTouchedRef.current && p.unitPrice != null) setUnitPrice(String(p.unitPrice))
+    } catch (e) {
+      if (!aliveRef.current) return
+      setAnalyzeError(e?.name === 'AbortError' ? 'อ่านนานเกินไป' : 'เชื่อมต่อไม่สำเร็จ')
+    } finally {
+      clearTimeout(timer)
+      if (aliveRef.current) setAnalyzing(false)
+    }
+  }, [])
+
+  // มีรูปสินค้า (ถ่าย/เลือก) → ให้ AI อ่านอัตโนมัติ (ไฟล์เดิมไม่อ่านซ้ำ)
+  useEffect(() => {
+    if (!image) { setAnalyzing(false); setAnalyzeError(null); return }
+    if (analyzedRef.current === image) return
+    analyzedRef.current = image
+    analyzeImage(image)
+  }, [image, analyzeImage])
+
+  // กันตั้ง state หลัง unmount (ปิด modal ระหว่างรออ่าน)
+  // ⚠️ ต้องตั้ง true ตอน mount ด้วย — ไม่งั้น StrictMode (dev) รัน cleanup ตอน unmount จำลอง
+  // แล้วค้างเป็น false ถาวร ทำให้ finally ไม่เซ็ต setAnalyzing(false) → สปินเนอร์ค้างตลอด
+  useEffect(() => {
+    aliveRef.current = true
+    return () => { aliveRef.current = false }
+  }, [])
 
   const qtyNum = Number(qty)
   const unitNum = Number(unitPrice)
@@ -187,7 +212,7 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
           </div>
 
           {/* ชื่อสินค้า — AI เติมให้จากรูป (แก้ได้) */}
-          <label className="block">
+          <div>
             <span className="text-xs font-semibold text-muted-foreground inline-flex items-center">
               ชื่อสินค้า
               {analyzing && (
@@ -204,7 +229,21 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
               autoFocus
               className="mt-1 w-full h-12 rounded-xl border border-input bg-background px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
-          </label>
+            {analyzeError && !analyzing && (
+              <p className="mt-1 text-[11px] text-amber-600">
+                {analyzeError}
+                {image && (
+                  <button
+                    type="button"
+                    onClick={() => analyzeImage(image)}
+                    className="ml-1 text-primary font-medium underline"
+                  >
+                    อ่านอีกครั้ง
+                  </button>
+                )}
+              </p>
+            )}
+          </div>
 
           {/* จำนวน (สเต็ปเปอร์ −/+ เลขอยู่กลาง) + ราคา/หน่วย — วางคู่กันในแถวเดียว */}
           <div className="grid grid-cols-2 gap-3">

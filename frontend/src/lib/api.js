@@ -17,11 +17,12 @@ export function apiGet(path) {
   return fetch(`${API_URL}${path}`, { headers: authHeaders() })
 }
 
-export function apiPostForm(path, formData) {
+export function apiPostForm(path, formData, signal) {
   return fetch(`${API_URL}${path}`, {
     method: 'POST',
     headers: authHeaders(),
     body: formData,
+    signal, // ออปชัน: ส่ง AbortSignal มาเพื่อตั้ง timeout/ยกเลิกได้ (undefined = ไม่ยกเลิก)
   })
 }
 
