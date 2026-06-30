@@ -429,9 +429,9 @@ export default function Home({ profile }) {
         onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
       <input ref={galleryRef} type="file" accept="image/*" multiple className="hidden"
         onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
-      {/* รูปสินค้า → เปิดฟอร์มกรอกละเอียด (แท็บ form) พร้อมรูป
-          ไม่ใส่ capture → ระบบให้เลือกเอง (ถ่ายรูป/เลือกจากแกลเลอรี) เผื่อกล้องพังหรือถูกปฏิเสธสิทธิ์ */}
-      <input ref={productCamRef} type="file" accept="image/*" className="hidden"
+      {/* รูปสินค้า → เปิดกล้องถ่ายทันที (capture) แล้วเข้าฟอร์มกรอกละเอียดพร้อมรูป
+          ถ้าอยากเลือกจากแกลเลอรีแทน ทำได้ในฟอร์ม (ปุ่ม "เลือกรูป") */}
+      <input ref={productCamRef} type="file" accept="image/*" capture="environment" className="hidden"
         onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { setProductImage(f); setShowManual(true) } }} />
     </div>
   )
