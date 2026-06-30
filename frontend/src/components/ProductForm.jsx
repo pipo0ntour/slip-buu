@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { X, Camera, ImagePlus, Minus, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { apiPostForm } from '@/lib/api'
+import { shrinkImageForUpload } from '@/lib/image'
 import { CATEGORIES } from '@/components/TransactionForm'
 
 // ── ชีต "บันทึกสินค้า" เฉพาะทาง — เปิดต่อจากการถ่ายรูปสินค้า ──
@@ -48,8 +49,10 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), 30000) // กันค้างตอนคิว AI เต็ม/เน็ตช้า
     try {
+      // ย่อรูปก่อนอัปโหลด — ตัดเวลาอัปโหลดบนเน็ตมือถือลงหลายเท่า (รูปดิบจากกล้องหนักหลาย MB)
+      const small = await shrinkImageForUpload(file)
       const form = new FormData()
-      form.append('image', file)
+      form.append('image', small)
       const res = await apiPostForm('/api/slip/analyze-product', form, ctrl.signal)
       const j = await res.json().catch(() => ({}))
       if (!aliveRef.current) return
