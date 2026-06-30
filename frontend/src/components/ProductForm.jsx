@@ -165,7 +165,7 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
                 </Button>
               </div>
             )}
-            <p className="text-[11px] text-muted-foreground mt-1">ถ่ายเพื่อให้ AI อ่านสินค้าเท่านั้น — ระบบไม่เก็บรูปนี้</p>
+            <p className="text-[11px] text-muted-foreground mt-1">ถ่ายเพื่อให้ AI อ่านรายละเอียดสินค้าให้</p>
           </div>
 
           {/* ประเภท: รายรับ / รายจ่าย */}
