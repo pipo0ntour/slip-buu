@@ -1,12 +1,20 @@
 import { useEffect, useState } from 'react'
 import { apiGet } from '@/lib/api'
-import { fmtBahtShort, expenseByCategory, categoryMeta, categoryLabel } from '@/lib/finance'
+import { fmtBahtShort, expenseByCategory, categoryMeta, categoryLabel, buildAdvice } from '@/lib/finance'
+import { loadBudgets } from '@/lib/budgetStore'
 import { bkkToday, stepAnchor, anchorParam } from '@/lib/period'
 import StatCard from '@/components/StatCard'
 import SessionExpiredCard from '@/components/SessionExpiredCard'
 import GradientHeader from '@/components/GradientHeader'
 
 const MONTHS_BACK = 6
+
+// สีพื้นการ์ดคำแนะนำตามระดับ: เตือน (แดง) / ข้อมูล (กลาง) / ดี (เขียว) — ใช้ opacity ต่ำ รองรับ dark mode
+const ADVICE_TONE = {
+  warn: 'bg-red-500/10 text-red-600',
+  info: 'bg-muted/60 text-foreground',
+  good: 'bg-green-500/10 text-green-700',
+}
 
 // ป้ายเดือนสั้น ๆ จาก anchor
 function shortMonth(a) {
@@ -16,6 +24,7 @@ function shortMonth(a) {
 export default function Insights() {
   const [months, setMonths] = useState([]) // [{ label, income, expense, net }]
   const [topCats, setTopCats] = useState({ total: 0, rows: [] })
+  const [advice, setAdvice] = useState([]) // คำแนะนำการใช้จ่ายแบบกฎ (เกินงบ/พุ่ง/ออม ฯลฯ)
   const [loading, setLoading] = useState(true)
   const [sessionExpired, setSessionExpired] = useState(false)
 
@@ -41,6 +50,8 @@ export default function Insights() {
       setMonths(rows)
       // รวมรายจ่ายทุกเดือนเพื่อหาหมวดเด่นช่วง 6 เดือน
       setTopCats(expenseByCategory(list.flatMap(j => j?.slips || [])))
+      // คำแนะนำการใช้จ่าย — อิงรายงานรายเดือน (เก่า→ใหม่) + งบที่ตั้งไว้ (เก็บในเครื่อง)
+      setAdvice(buildAdvice(list, loadBudgets()))
     } catch {
       /* network error → คงค่าเดิมไว้ */
     } finally {
@@ -78,6 +89,22 @@ export default function Insights() {
               <StatCard label={`ออมรวม ${MONTHS_BACK} เดือน`} value={fmtBahtShort(totalNet)} tone={totalNet < 0 ? 'expense' : 'income'} />
               <StatCard label="เฉลี่ย/เดือน" value={fmtBahtShort(Math.round(avgNet))} tone={avgNet < 0 ? 'expense' : 'default'} />
             </div>
+
+            {/* คำแนะนำการใช้จ่าย (rule-based) — บอกว่าควรลด/จับตาอะไร */}
+            {advice.length > 0 && (
+              <section className="mt-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
+                <p className="text-xs font-semibold tracking-wide text-muted-foreground mb-3">💡 คำแนะนำการใช้จ่าย</p>
+                <div className="space-y-2">
+                  {advice.map((a) => (
+                    <div key={a.id} className={`flex items-start gap-2.5 rounded-xl px-3 py-2.5 text-sm ${ADVICE_TONE[a.tone] || ADVICE_TONE.info}`}>
+                      <span className="shrink-0">{a.emoji}</span>
+                      <span className="min-w-0">{a.text}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-[11px] text-muted-foreground">อิงรายจ่ายเดือนนี้เทียบ 5 เดือนก่อน</p>
+              </section>
+            )}
 
             {/* กราฟแท่งรายเดือน (รายรับเขียว / รายจ่ายแดง) */}
             <section className="mt-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
