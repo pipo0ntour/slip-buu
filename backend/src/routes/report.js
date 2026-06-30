@@ -22,6 +22,16 @@ function expenseByCategory(rows) {
   return map
 }
 
+// ฟิลเตอร์ "ช่วงเวลาตามวันที่ทำรายการจริง" — ยึด transaction_at ก่อน, ถ้าเป็น null (OCR อ่านวันที่ไม่ได้)
+// ค่อยตกไปใช้ created_at แทน เทียบเท่า COALESCE(transaction_at, created_at) อยู่ในช่วง [from, to)
+// (PostgREST ไม่มี COALESCE ในฟิลเตอร์ตรง ๆ จึงเขียนเป็น OR สองกรณีให้เทียบเท่า — ทั้ง 2 คอลัมน์มีทุก schema)
+const effectiveRangeFilter = (fromIso, toIso) =>
+  `and(transaction_at.gte.${fromIso},transaction_at.lt.${toIso}),` +
+  `and(transaction_at.is.null,created_at.gte.${fromIso},created_at.lt.${toIso})`
+
+// instant (ms) ของ "วันที่ทำรายการจริง" สำหรับเรียงลำดับ — ให้ตรงกับวันที่ที่โชว์ในลิสต์
+const effectiveDate = (s) => new Date(s.transaction_at || s.created_at).getTime()
+
 router.get('/', rateLimitReads, async (req, res) => {
   const { period = 'daily', date } = req.query
   const lineUserId = req.lineUser.userId
@@ -44,16 +54,17 @@ router.get('/', rateLimitReads, async (req, res) => {
   const COLS_BASE =
     'id, amount, sender_name, receiver_name, bank_name, reference_no, transaction_at, image_url, created_at'
 
-  // นับยอดตาม "วันที่บันทึก" (created_at = วันที่กดอัป/สร้างรายการ)
-  // → อัปวันนี้จะอยู่ใน "วันนี้" เสมอ และไม่มีรายการหายแม้ OCR อ่านวันที่บนสลิปผิด
+  // นับยอดตาม "วันที่ทำรายการจริง" (transaction_at) — ถ้าอ่านวันที่ไม่ได้/ไม่มี ใช้ created_at แทน
+  // → ผู้ใช้ตั้ง/แก้ "วันที่ทำรายการ" แล้วรายการจะย้ายไปอยู่ช่วงที่ตั้งจริง (รายงานตรงกับวันที่ที่โชว์ในลิสต์)
+  //   และรายการที่ไม่มี transaction_at ก็ไม่หาย — ตกไปนับด้วย created_at (ดู effectiveRangeFilter)
   const querySlips = (cols) => {
     let q = supabase
       .from('slips')
       .select(cols)
       .eq('line_user_id', lineUserId)
       .eq('status', 'success')
-    if (!isAll) q = q.gte('created_at', fromIso).lt('created_at', toIso)
-    return q.order('created_at', { ascending: false })
+    if (!isAll) q = q.or(effectiveRangeFilter(fromIso, toIso))
+    return q
   }
 
   let slips, error
@@ -65,6 +76,9 @@ router.get('/', rateLimitReads, async (req, res) => {
   if (error) {
     return res.status(500).json({ error: 'Database error' })
   }
+
+  // เรียงใหม่→เก่า ตาม "วันที่ทำรายการจริง" ใน JS (PostgREST เรียงตาม COALESCE ไม่ได้) — ปริมาณต่อผู้ใช้ไม่มาก
+  slips.sort((a, b) => effectiveDate(b) - effectiveDate(a))
 
   // รูปสลิปขอแบบ lazy (ดูทีละใบตอนเปิด modal) → ไม่ออก signed URL ให้ทุกใบที่นี่
   // เพราะ "รายปี" อาจมีหลายร้อยใบ การ sign ทุกใบทั้งที่ดูไม่กี่ใบทำให้รายงานช้า/เปลือง
@@ -86,8 +100,7 @@ router.get('/', rateLimitReads, async (req, res) => {
       .eq('line_user_id', lineUserId)
       .eq('status', 'success')
       .eq('type', 'expense')
-      .gte('created_at', prev.fromIso)
-      .lt('created_at', prev.toIso)
+      .or(effectiveRangeFilter(prev.fromIso, prev.toIso))
     if (!prevErr) prevExpenseByCategory = expenseByCategory(prevRows)
   }
 

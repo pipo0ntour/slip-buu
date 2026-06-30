@@ -103,6 +103,12 @@ export default function SlipModal({ slip, toast, onSaved, onDeleted, onClose }) 
         day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
       })
     : '-'
+  // วันเวลาที่กดบันทึกจริง (created_at) — แสดงเฉพาะเมื่อต่างจาก "วันที่ทำรายการ" จะได้ไม่รก
+  const createdText = slip.created_at && slip.created_at !== slip.transaction_at
+    ? new Date(slip.created_at).toLocaleString('th-TH', {
+        day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+      })
+    : ''
   const isExpense = slip.type === 'expense'
 
   return (
@@ -221,6 +227,8 @@ export default function SlipModal({ slip, toast, onSaved, onDeleted, onClose }) 
                   <DetailRow label="ค่าธรรมเนียม" value={`${Number(slip.fee).toLocaleString('th-TH')} บาท`} />
                 )}
                 <DetailRow label="วันที่ทำรายการ" value={dateText} />
+                {/* เวลาที่กดบันทึกจริง — รายงานยึด "วันที่ทำรายการ" ด้านบน บรรทัดนี้ไว้ให้ผู้ใช้ตรวจย้อนได้ */}
+                {createdText && <DetailRow label="บันทึกเมื่อ" value={createdText} />}
               </div>
 
               {imageUrl ? (
