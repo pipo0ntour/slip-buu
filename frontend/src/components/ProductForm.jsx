@@ -78,7 +78,12 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
   }, [image, analyzeImage])
 
   // กันตั้ง state หลัง unmount (ปิด modal ระหว่างรออ่าน)
-  useEffect(() => () => { aliveRef.current = false }, [])
+  // ⚠️ ต้องตั้ง true ตอน mount ด้วย — ไม่งั้น StrictMode (dev) รัน cleanup ตอน unmount จำลอง
+  // แล้วค้างเป็น false ถาวร ทำให้ finally ไม่เซ็ต setAnalyzing(false) → สปินเนอร์ค้างตลอด
+  useEffect(() => {
+    aliveRef.current = true
+    return () => { aliveRef.current = false }
+  }, [])
 
   const qtyNum = Number(qty)
   const unitNum = Number(unitPrice)
