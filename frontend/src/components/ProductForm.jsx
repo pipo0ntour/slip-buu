@@ -6,6 +6,7 @@ import { CATEGORIES } from '@/components/TransactionForm'
 
 // ── ชีต "บันทึกสินค้า" เฉพาะทาง — เปิดต่อจากการถ่ายรูปสินค้า ──
 // ตัดผู้โอน/ผู้รับออก (ไม่เกี่ยวกับสินค้า) เหลือ: ชื่อสินค้า + จำนวน × ราคา/หน่วย → ยอดรวมอัตโนมัติ
+// รูปสินค้า: ใช้ให้ AI อ่านชื่อ/หมวด/ราคาเท่านั้น (ไม่เก็บลง storage) — ตอนบันทึกไม่ส่งรูปไป
 // บันทึกผ่าน /api/slip/manual เดิม (ไม่แตะ backend): ชื่อ+จำนวนเก็บลง note เช่น "น้ำตาลทราย ×3"
 const fmt = (n) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })
 
@@ -89,7 +90,7 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
       if (note) form.append('note', note)
       if (category.trim()) form.append('category', category.trim())
       if (date) form.append('transaction_at', new Date(date).toISOString()) // เว้นว่าง → backend ใช้เวลาปัจจุบัน
-      if (image) form.append('image', image) // รูปสินค้า — backend เก็บ 1 วันแล้วลบอัตโนมัติ
+      // ไม่ส่งรูปไปเก็บ — รูปสินค้าใช้ให้ AI อ่านอย่างเดียว (ดู useEffect analyze) แล้วทิ้ง
 
       const res = await apiPostForm('/api/slip/manual', form)
       if (res.status === 401) {
@@ -164,7 +165,7 @@ export default function ProductForm({ toast, initialImage = null, onSaved, onClo
                 </Button>
               </div>
             )}
-            <p className="text-[11px] text-muted-foreground mt-1">เก็บไว้เป็นหลักฐาน 1 วัน แล้วลบรูปอัตโนมัติ (รายการยังอยู่)</p>
+            <p className="text-[11px] text-muted-foreground mt-1">ถ่ายเพื่อให้ AI อ่านสินค้าเท่านั้น — ระบบไม่เก็บรูปนี้</p>
           </div>
 
           {/* ประเภท: รายรับ / รายจ่าย */}
