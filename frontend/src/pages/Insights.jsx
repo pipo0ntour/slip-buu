@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { apiGet } from '@/lib/api'
-import { fmtBahtShort, expenseByCategory, categoryMeta, categoryLabel, buildAdvice } from '@/lib/finance'
+import { fmtBahtShort, categoryMeta, categoryLabel, buildAdvice } from '@/lib/finance'
 import { loadBudgets } from '@/lib/budgetStore'
 import { bkkToday, stepAnchor, anchorParam } from '@/lib/period'
 import StatCard from '@/components/StatCard'
@@ -30,28 +30,25 @@ export default function Insights() {
 
   async function load() {
     setLoading(true)
-    // anchor ของ 6 เดือนล่าสุด (เก่า→ใหม่)
+    // anchor ของ 6 เดือนล่าสุด (เก่า→ใหม่) — ส่งให้ backend ครั้งเดียว แล้วรวบมาเป็น response เดียว
     const today = bkkToday()
     const anchors = []
     for (let i = MONTHS_BACK - 1; i >= 0; i--) anchors.push(stepAnchor(today, 'monthly', -i))
     try {
-      const responses = await Promise.all(
-        anchors.map(a => apiGet(`/api/report?period=monthly&date=${anchorParam(a)}`))
-      )
-      if (responses.some(r => r.status === 401)) { setSessionExpired(true); return }
+      const res = await apiGet(`/api/report/insights?months=${anchors.map(anchorParam).join(',')}`)
+      if (res.status === 401) { setSessionExpired(true); return }
       setSessionExpired(false)
-      const list = await Promise.all(responses.map(r => (r.ok ? r.json().catch(() => null) : null)))
-      const rows = list.map((j, i) => ({
+      const j = res.ok ? await res.json().catch(() => null) : null
+      const data = j?.months || []
+      setMonths(data.map((m, i) => ({
         label: shortMonth(anchors[i]),
-        income: Number(j?.totalIncome) || 0,
-        expense: Number(j?.totalExpense) || 0,
-        net: Number(j?.net) || 0,
-      }))
-      setMonths(rows)
-      // รวมรายจ่ายทุกเดือนเพื่อหาหมวดเด่นช่วง 6 เดือน
-      setTopCats(expenseByCategory(list.flatMap(j => j?.slips || [])))
-      // คำแนะนำการใช้จ่าย — อิงรายงานรายเดือน (เก่า→ใหม่) + งบที่ตั้งไว้ (เก็บในเครื่อง)
-      setAdvice(buildAdvice(list, loadBudgets()))
+        income: Number(m?.income) || 0,
+        expense: Number(m?.expense) || 0,
+        net: Number(m?.net) || 0,
+      })))
+      setTopCats(j?.topCategories || { total: 0, rows: [] }) // หมวดเด่นช่วง 6 เดือน (backend รวมมาให้)
+      // คำแนะนำการใช้จ่าย — อิงข้อมูลรายเดือน (เก่า→ใหม่) + งบที่ตั้งไว้ (เก็บในเครื่อง)
+      setAdvice(buildAdvice(data, loadBudgets()))
     } catch {
       /* network error → คงค่าเดิมไว้ */
     } finally {
