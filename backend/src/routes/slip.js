@@ -443,8 +443,9 @@ router.post('/analyze-product', rateLimitByUser, upload.single('image'), async (
   try {
     if (!req.file) return res.status(400).json({ status: 'error', message: 'ไม่พบรูปสินค้า' })
 
-    // ย่อ/หมุนตาม EXIF ก่อนส่ง vision (คมพอให้อ่านชื่อ/ป้ายราคา) — ไม่เก็บรูปต้นฉบับ
-    const { buffer, mimetype } = await compressImage(req.file.buffer, req.file.mimetype, OCR_PRESET)
+    // ย่อ/หมุนตาม EXIF ก่อนส่ง vision — ใช้ preset เล็ก (แค่ดูว่าเป็นสินค้าอะไร ไม่ต้องคมระดับอ่านตัวอักษร
+    // เหมือนสลิป) เบา/เร็ว/ประหยัด token ช่วยลดโอกาสคิว AI เต็ม — ไม่เก็บรูปต้นฉบับ
+    const { buffer, mimetype } = await compressImage(req.file.buffer, req.file.mimetype, STORAGE_PRESET)
     let product
     try {
       product = await analyzeProduct(buffer, mimetype)
