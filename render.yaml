@@ -23,7 +23,7 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-      - key: LINE_LOGIN_CHANNEL_ID
+      - key: LINE_LOGIN_CHANNEL_ID # ⚠️ บังคับ — backend ไม่ยอมบูตบน production ถ้าไม่ตั้ง (กัน token จาก LINE app อื่น)
         sync: false
       - key: CORS_ORIGIN          # = domain Vercel (ไม่มี / ท้าย) เว้นว่าง = อนุญาตทุก origin
         sync: false
@@ -33,4 +33,7 @@ services:
       # ── pin Node ให้ตรง engines (>=20) — กัน Render เลือกเวอร์ชันอื่น ──
       - key: NODE_VERSION
         value: "20"
+      # ── เปิด boot guard ฝั่งโค้ด (บล็อก DEV_FAKE_LINE_USER + บังคับ LINE_LOGIN_CHANNEL_ID) ──
+      - key: NODE_ENV
+        value: "production"
     # หมายเหตุ: ห้ามตั้ง PORT เอง — Render กำหนดให้อัตโนมัติ (โค้ดอ่าน process.env.PORT)

@@ -1,17 +1,23 @@
-// จำกัดจำนวน request ต่อผู้ใช้ (in-memory) — กันสแปม/ขูดข้อมูล และคุมการเรียก Gemini OCR ที่มีค่าใช้จ่าย
-// ใช้หลัง lineAuth เท่านั้น (ต้องมี req.lineUser.userId)
+// จำกัดจำนวน request (in-memory) — กันสแปม/ขูดข้อมูล และคุมการเรียก Gemini OCR ที่มีค่าใช้จ่าย
+// ดีฟอลต์นับต่อผู้ใช้ (ใช้หลัง lineAuth — ต้องมี req.lineUser.userId) หรือส่ง keyFn มานับด้วย key อื่น (เช่น IP)
+//
+// ⚠️ ข้อจำกัดที่ "ยอมรับ" สำหรับสเกลนี้: state อยู่ใน memory ล้วน — restart/deploy = ตัวนับรีเซ็ต
+//    และถ้ารันหลาย instance แต่ละตัวนับแยกกัน (ลิมิตจริงคูณจำนวน instance)
+//    ถ้าจะเข้มจริงต้องย้ายไป store กลาง (Redis/DB) ซึ่งเกินความจำเป็นของแอปนี้ตอนนี้
 const WINDOW_MS = 60 * 1000 // หน้าต่างเวลา 1 นาที
 
 /**
- * สร้าง middleware จำกัด req ต่อผู้ใช้ — แต่ละ limiter มี Map ของตัวเอง (นับแยกกัน ไม่ปนกัน)
- * @param {{ max?: number, windowMs?: number }} [opts]
+ * สร้าง middleware จำกัด req — แต่ละ limiter มี Map ของตัวเอง (นับแยกกัน ไม่ปนกัน)
+ * @param {{ max?: number, windowMs?: number, keyFn?: (req) => string|undefined }} [opts]
+ *   keyFn = ตัวเลือก key ที่ใช้นับ (ดีฟอลต์: userId จาก lineAuth) — คืน undefined = ปล่อยผ่าน
  */
-export function createRateLimit({ max = 20, windowMs = WINDOW_MS } = {}) {
-  const hits = new Map() // userId -> number[] (timestamps)
+export function createRateLimit({ max = 20, windowMs = WINDOW_MS, keyFn } = {}) {
+  const hits = new Map() // key -> number[] (timestamps)
+  const getKey = keyFn || ((req) => req.lineUser?.userId)
 
   return function rateLimit(req, res, next) {
-    const id = req.lineUser?.userId
-    if (!id) return next() // ไม่ควรเกิดเพราะผ่าน lineAuth มาแล้ว แต่กันพลาด
+    const id = getKey(req)
+    if (!id) return next() // ไม่มี key ให้นับ (เช่นยังไม่ผ่าน lineAuth) — ปล่อยผ่าน กันพลาด
 
     const now = Date.now()
     const recent = (hits.get(id) || []).filter((t) => now - t < windowMs)
@@ -41,3 +47,10 @@ export const rateLimitByUser = createRateLimit({ max: 20 })
 
 // อ่านรายงาน (เบากว่ามาก แต่กันสแปม/ขูดข้อมูล) — ผ่อนกว่า เพราะ Insights ยิงทีเดียว 6 + เปิดหลายหน้า
 export const rateLimitReads = createRateLimit({ max: 60 })
+
+// แก้/ลบ/เปิดรูปรายการ (ต้นทุนต่ำแต่ต้องไม่ปล่อยยิงไม่อั้น) — แยกถังจากตัวอ่าน กันเบียดโควต้ากัน
+export const rateLimitItemOps = createRateLimit({ max: 60 })
+
+// ต่อ IP "ก่อน auth" — ด่านแรกกันสแปม token มั่ว ๆ (ทุก req ที่หลุดไปถึง lineAuth = ยิง LINE API จริง)
+// เพดานกว้างพอสำหรับผู้ใช้จริงหลายคนหลัง NAT เดียวกัน (ใช้ req.ip — ต้อง app.set('trust proxy', 1))
+export const rateLimitByIp = createRateLimit({ max: 300, keyFn: (req) => req.ip })

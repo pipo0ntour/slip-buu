@@ -6,7 +6,7 @@ import { hashBuffer, checkByHash, checkByRefNo, checkByQr } from '../services/du
 import { supabase } from '../services/supabase.js'
 import { attachSignedImageUrls, storagePathOf } from '../services/storage.js'
 import { upsertUser } from '../services/users.js'
-import { rateLimitByUser } from '../services/rateLimit.js'
+import { rateLimitByUser, rateLimitItemOps } from '../services/rateLimit.js'
 
 const router = express.Router()
 const upload = multer({
@@ -14,6 +14,27 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: imageFileFilter, // รับเฉพาะรูป (image/*)
 })
+
+// ── เพดานค่าที่รับจากผู้ใช้/OCR — กันข้อมูลทะลุ schema แล้วระเบิดเป็น 500 ปริศนา ──
+// amount ใน DB เป็น NUMERIC(12,2) = เก็บได้สูงสุด 10 หลักหน้าจุดทศนิยม เกินนี้ Postgres โยน overflow
+const MAX_AMOUNT = 9_999_999_999.99
+// ความยาวข้อความ: ชื่อคน/ร้าน/ธนาคาร/หมวด สั้น ๆ พอ, โน้ตยาวได้เท่าลิมิตของ note-parse-text
+const MAX_NAME_LEN = 120
+const MAX_NOTE_LEN = 1000
+const MAX_REF_LEN = 64
+
+// trim + ตัดความยาว + ค่าว่าง = null — ใช้กับทุกฟิลด์ข้อความที่ผู้ใช้กรอกเอง
+const cleanText = (v, max = MAX_NAME_LEN) => {
+  const s = (v ?? '').toString().trim()
+  return s ? s.slice(0, max) : null
+}
+
+// จำนวนเงินที่ใช้งานได้จริง: บวก, ไม่เกินเพดาน schema, ปัดเป็นทศนิยม 2 ตำแหน่ง — คืน null ถ้าใช้ไม่ได้
+const toValidAmount = (v) => {
+  const n = Number(v)
+  if (!Number.isFinite(n) || n <= 0 || n > MAX_AMOUNT) return null
+  return Math.round(n * 100) / 100
+}
 
 // ข้อความบอกว่าซ้ำกับรายการไหน — ร้านค้าจะได้เช็คย้อนได้ว่าบันทึกไปเมื่อไหร่ ยอดเท่าไร
 function describeDuplicate(row, reason = '') {
@@ -84,6 +105,14 @@ async function processSlip(file, lineUserId, type = 'income', qrPayload = null) 
     return { status: 'error', message: 'ไม่พบข้อมูลสลิปหรือใบเสร็จในรูปนี้ กรุณาถ่ายใหม่ให้ชัดเจน' }
   }
 
+  // 3.1 ยอดที่ OCR อ่านได้ต้องสมเหตุสมผล (บวก + ไม่ทะลุ NUMERIC(12,2)) — ไม่งั้น insert จะ
+  //     overflow เป็น "บันทึกข้อมูลไม่สำเร็จ" ปริศนา สู้บอกตรง ๆ ให้ผู้ใช้เช็ครูป/แก้เองดีกว่า
+  const safeAmount = toValidAmount(ocr.amount)
+  if (safeAmount == null) {
+    return { status: 'error', message: 'ยอดเงินที่อ่านได้ผิดปกติ กรุณาตรวจรูปแล้วลองใหม่ หรือเพิ่มรายการเอง' }
+  }
+  ocr.amount = safeAmount
+
   // 4. ตรวจซ้ำด้วยเลขอ้างอิง — เฉพาะสลิป (เลขอ้างอิงการโอนนิ่งและไม่ซ้ำ)
   //    ใบเสร็จไม่ใช้ refNo ตรวจซ้ำ (OCR เลขใบเสร็จไม่นิ่ง + อาจชนกันง่าย) — พึ่ง image hash พอ
   if (ocr.referenceNo && !isReceipt) {
@@ -153,6 +182,11 @@ async function processSlip(file, lineUserId, type = 'income', qrPayload = null) 
   }
 
   if (dbErr) {
+    // ชน unique ของ image_hash/qr_ref = อัปโหลดใบเดิมพร้อมกัน 2 ครั้ง (เช่นกดซ้ำเร็ว ๆ) —
+    // เช็คซ้ำด้านบนผ่านทั้งคู่ก่อน insert → ตอบเป็น "รายการซ้ำ" ให้ตรงความจริง ไม่ใช่ error ปริศนา
+    if (/duplicate key|23505/i.test(dbErr.message)) {
+      return { status: 'duplicate', message: 'รายการซ้ำ — ใบนี้เพิ่งถูกบันทึกไปแล้ว' }
+    }
     console.error('DB insert error:', dbErr.message)
     return { status: 'error', message: 'บันทึกข้อมูลไม่สำเร็จ' }
   }
@@ -189,7 +223,7 @@ async function processSlip(file, lineUserId, type = 'income', qrPayload = null) 
 // ───────────────────── รูปสลิป (lazy) ─────────────────────
 // GET /api/slip/:id/image — ออก signed URL ของรูปเฉพาะตอนเปิดดูทีละใบ
 // (หน้ารายงานไม่ sign ทุกใบล่วงหน้าเพื่อความเร็ว — ดู report.js)
-router.get('/:id/image', async (req, res) => {
+router.get('/:id/image', rateLimitItemOps, async (req, res) => {
   try {
     const { id } = req.params
     const lineUserId = req.lineUser.userId
@@ -238,7 +272,7 @@ const EDITABLE_FIELDS = [
   'type',
 ]
 
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', rateLimitItemOps, async (req, res) => {
   try {
     const { id } = req.params
     const lineUserId = req.lineUser.userId
@@ -252,10 +286,35 @@ router.patch('/:id', async (req, res) => {
         update[key] = v === '' || v == null ? null : v
       }
     }
-    if (update.amount != null) {
-      const n = Number(update.amount)
-      update.amount = Number.isFinite(n) ? n : null
+
+    // amount: รายการต้องมียอดเสมอ (ยอดหาย = รายงานเพี้ยนทั้งหน้า) — ส่งมาแก้ต้องเป็นบวกและไม่ทะลุ schema
+    if ('amount' in update) {
+      const n = toValidAmount(update.amount)
+      if (n == null) {
+        return res.status(400).json({ status: 'error', message: 'จำนวนเงินต้องมากกว่า 0 และไม่เกิน 9,999,999,999.99' })
+      }
+      update.amount = n
     }
+
+    // transaction_at: ต้องเป็นวันที่ที่ parse ได้ (null = ลบวันที่ → รายงานใช้วันบันทึกแทน)
+    // ค่าขยะถ้าปล่อยผ่าน Postgres จะโยน type error กลายเป็น 500 ปริศนา — ดัก 400 ที่นี่
+    if ('transaction_at' in update && update.transaction_at != null) {
+      const d = new Date(update.transaction_at)
+      if (isNaN(d.getTime())) {
+        return res.status(400).json({ status: 'error', message: 'รูปแบบวันที่ไม่ถูกต้อง' })
+      }
+      update.transaction_at = d.toISOString()
+    }
+
+    // ฟิลด์ข้อความ: trim + จำกัดความยาว (กันยัดข้อความยาว ๆ ถ่วง DB/หน้ารายงาน)
+    for (const key of ['sender_name', 'receiver_name', 'bank_name', 'category']) {
+      if (key in update && update[key] != null) update[key] = cleanText(update[key])
+    }
+    if ('note' in update && update.note != null) update.note = cleanText(update.note, MAX_NOTE_LEN)
+    if ('reference_no' in update && update.reference_no != null) {
+      update.reference_no = cleanText(update.reference_no, MAX_REF_LEN)
+    }
+
     // type รับเฉพาะ income/expense — ค่าอื่นไม่อัปเดต (กันข้อมูลเพี้ยน)
     if ('type' in update && update.type !== 'income' && update.type !== 'expense') {
       delete update.type
@@ -301,7 +360,7 @@ router.patch('/:id', async (req, res) => {
 
 // ───────────────────── ลบรายการ ─────────────────────
 // DELETE /api/slip/:id — ลบได้เฉพาะรายการของตัวเอง (.eq line_user_id กันลบของคนอื่น)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', rateLimitItemOps, async (req, res) => {
   try {
     const { id } = req.params
     const lineUserId = req.lineUser.userId
@@ -355,9 +414,9 @@ router.post('/manual', rateLimitByUser, upload.single('image'), async (req, res)
     const lineUserId = req.lineUser.userId
     const b = req.body || {}
 
-    const amount = Number(b.amount)
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return res.status(400).json({ status: 'error', message: 'กรุณาระบุจำนวนเงินให้ถูกต้อง' })
+    const amount = toValidAmount(b.amount)
+    if (amount == null) {
+      return res.status(400).json({ status: 'error', message: 'จำนวนเงินต้องมากกว่า 0 และไม่เกิน 9,999,999,999.99' })
     }
     const type = b.type === 'expense' ? 'expense' : 'income'
 
@@ -389,20 +448,15 @@ router.post('/manual', rateLimitByUser, upload.single('image'), async (req, res)
       }
     }
 
-    const clean = (v) => {
-      const s = (v ?? '').toString().trim()
-      return s || null
-    }
-
     const row = {
       line_user_id: lineUserId,
       amount,
       type,
-      sender_name: clean(b.sender_name),
-      receiver_name: clean(b.receiver_name),
-      bank_name: clean(b.bank_name),
-      note: clean(b.note),
-      category: clean(b.category),
+      sender_name: cleanText(b.sender_name),
+      receiver_name: cleanText(b.receiver_name),
+      bank_name: cleanText(b.bank_name),
+      note: cleanText(b.note, MAX_NOTE_LEN),
+      category: cleanText(b.category),
       transaction_at: transactionAt,
       source: 'manual',
       status: 'success',
@@ -531,23 +585,18 @@ router.post('/note-save', rateLimitByUser, async (req, res) => {
       return res.status(400).json({ status: 'error', message: 'รายการเยอะเกินไป (สูงสุด 50 รายการต่อครั้ง)' })
     }
 
-    const clean = (v) => {
-      const s = (v ?? '').toString().trim()
-      return s || null
-    }
-
     // รายการในโน้ตชุดเดียวกัน ใช้เวลาปัจจุบันเป็นเวลาทำรายการเหมือนกัน
     const now = new Date().toISOString()
     const rows = []
     for (const it of input) {
-      const amount = Number(it.amount)
-      if (!Number.isFinite(amount) || amount <= 0) continue // ข้ามแถวที่ยอดไม่ถูกต้อง
+      const amount = toValidAmount(it.amount)
+      if (amount == null) continue // ข้ามแถวที่ยอดไม่ถูกต้อง (ติดลบ/ศูนย์/ทะลุเพดาน schema)
       rows.push({
         line_user_id: lineUserId,
         amount,
         type: it.type === 'income' ? 'income' : 'expense',
-        note: clean(it.description ?? it.note),
-        category: clean(it.category),
+        note: cleanText(it.description ?? it.note, MAX_NOTE_LEN),
+        category: cleanText(it.category),
         transaction_at: now,
         source: 'note',
         status: 'success',

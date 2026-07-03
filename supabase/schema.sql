@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS slips (
   reference_no   TEXT,
   transaction_at TIMESTAMPTZ,
   image_url      TEXT,
-  image_hash     TEXT UNIQUE,
+  image_hash     TEXT,  -- unique "ต่อผู้ใช้" ผ่าน index ข้างล่าง (ห้าม UNIQUE ระดับตาราง — สลิปใบเดียวกันบันทึกได้ทั้งฝั่งคนโอนและคนรับ)
   ocr_raw        JSONB,
   fee              NUMERIC(12, 2),
   sender_account   TEXT,
@@ -39,6 +39,11 @@ CREATE TABLE IF NOT EXISTS slips (
 CREATE INDEX IF NOT EXISTS idx_slips_line_user_id   ON slips(line_user_id);
 CREATE INDEX IF NOT EXISTS idx_slips_transaction_at ON slips(transaction_at);
 CREATE INDEX IF NOT EXISTS idx_slips_created_at     ON slips(created_at);
+
+-- กันอัปโหลดรูปเดิมซ้ำ "ภายในบัญชีเดียวกัน" (คนละคนบันทึกสลิปใบเดียวกันได้ — ไม่ถือว่าซ้ำ)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_slips_user_image_hash
+  ON slips (line_user_id, image_hash)
+  WHERE image_hash IS NOT NULL;
 
 -- ========================================
 -- Supabase Storage
