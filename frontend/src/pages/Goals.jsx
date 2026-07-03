@@ -171,7 +171,7 @@ function GoalForm({ goal, onSave, onCancel }) {
           value={target}
           onChange={e => setTarget(e.target.value)}
           placeholder="เช่น 5000"
-          className="mt-1 w-full h-12 rounded-xl border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="mt-1 w-full h-12 appearance-none [-webkit-appearance:none] rounded-xl border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
       </label>
 
@@ -181,7 +181,7 @@ function GoalForm({ goal, onSave, onCancel }) {
           value={label}
           onChange={e => setLabel(e.target.value)}
           placeholder="เช่น เก็บไปเที่ยว"
-          className="mt-1 w-full h-12 rounded-xl border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="mt-1 w-full h-12 appearance-none [-webkit-appearance:none] rounded-xl border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
       </label>
 
@@ -191,7 +191,7 @@ function GoalForm({ goal, onSave, onCancel }) {
           type="date"
           value={deadline}
           onChange={e => setDeadline(e.target.value)}
-          className="mt-1 w-full h-12 rounded-xl border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="mt-1 w-full h-12 appearance-none [-webkit-appearance:none] rounded-xl border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
       </label>
 
