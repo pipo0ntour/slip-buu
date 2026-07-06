@@ -6,7 +6,8 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      // import.meta.dirname = ESM แท้ (__dirname ไม่มีใน ESM — vite 8 โหลด config เป็น ESM ตรง)
+      '@': path.resolve(import.meta.dirname, './src'),
     },
   },
 })
