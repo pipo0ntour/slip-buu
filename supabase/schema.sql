@@ -47,7 +47,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_slips_user_image_hash
 
 -- ========================================
 -- Supabase Storage
--- ทำใน Dashboard: Storage → New bucket → ชื่อ "slips" → Public bucket
+-- ทำใน Dashboard: Storage → New bucket → ชื่อ "slips" → ⚠️ ต้องเป็น Private bucket
+-- (รูปสลิปเป็นข้อมูลการเงิน — backend เข้าถึงผ่าน service key + signed URL เท่านั้น ดู migrations/004)
 -- ========================================
 
 -- ========================================
