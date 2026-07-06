@@ -25,7 +25,7 @@ services:
         sync: false
       - key: LINE_LOGIN_CHANNEL_ID # ⚠️ บังคับ — backend ไม่ยอมบูตบน production ถ้าไม่ตั้ง (กัน token จาก LINE app อื่น)
         sync: false
-      - key: CORS_ORIGIN          # = domain Vercel (ไม่มี / ท้าย) เว้นว่าง = อนุญาตทุก origin
+      - key: CORS_ORIGIN          # = domain Vercel (ไม่มี / ท้าย) เว้นว่าง = ปิดกั้นทุก origin (fail-closed)
         sync: false
       # ── ไม่บังคับ: OCR fallback ผ่าน Groq เมื่อ Gemini โควต้าเต็ม (เว้นว่างได้) ──
       - key: GROQ_API_KEYS

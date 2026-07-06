@@ -480,7 +480,7 @@ function ResultSummary({ results, onPreview }) {
           const isDup = r.status === 'duplicate'
           const Icon = isOk ? CheckCircle : isDup ? AlertTriangle : XCircle
           const color = isOk ? 'text-green-600' : isDup ? 'text-amber-600' : 'text-destructive'
-          const label = isOk ? 'สำเร็จ' : isDup ? 'รายการซ้ำ' : 'ผิดพลาด'
+          const label = isOk ? 'สำเร็จ' : isDup ? 'รายการซ้ำ' : 'อ่านไม่สำเร็จ'
           // มีรูปแนบ → ทั้งแถวกดดูรูปได้ (สำคัญตอนขึ้น "ซ้ำ" จะได้รู้ว่าใบไหน)
           const Row = r.imageUrl ? 'button' : 'div'
           return (
@@ -495,15 +495,22 @@ function ResultSummary({ results, onPreview }) {
                 )}
                 <Icon className={`size-5 shrink-0 ${color}`} />
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold truncate">{r.data?.senderName || `รายการ ${i + 1}`}</p>
-                  <p className="text-xs text-muted-foreground truncate">{r.data?.bank || r.message || label}</p>
+                  {/* แถวซ้ำ/พลาด: หัวแถว = ป้ายสถานะ, บรรทัดรอง = "เหตุผล" จาก server เต็ม ๆ (สูงสุด 2 บรรทัด
+                      ไม่ตัดทิ้ง) — ผู้ใช้ต้องรู้ว่าพลาดเพราะอะไร เช่น รูปไม่ใช่สลิป / รูปเบลอ / ซ้ำกับใบไหน */}
+                  <p className={`text-sm font-semibold truncate ${isOk ? '' : color}`}>
+                    {r.data?.senderName || (isOk ? `รายการ ${i + 1}` : label)}
+                  </p>
+                  <p className={`text-xs text-muted-foreground ${isOk ? 'truncate' : 'line-clamp-2'}`}>
+                    {r.data?.bank || r.message || label}
+                  </p>
                 </div>
               </div>
-              <p className={`text-sm font-bold shrink-0 ${r.data?.amount ? (r.data.type === 'expense' ? 'text-red-600' : 'text-green-600') : ''}`}>
-                {r.data?.amount
-                  ? `${r.data.type === 'expense' ? '-' : '+'}${Number(r.data.amount).toLocaleString('th-TH')} ฿`
-                  : label}
-              </p>
+              {/* ฝั่งขวาโชว์เฉพาะยอดเงิน — สถานะอยู่ที่หัวแถว+ไอคอนแล้ว ไม่ต้องเบิ้ลคำว่า "ผิดพลาด" */}
+              {r.data?.amount ? (
+                <p className={`text-sm font-bold shrink-0 ${r.data.type === 'expense' ? 'text-red-600' : 'text-green-600'}`}>
+                  {`${r.data.type === 'expense' ? '-' : '+'}${Number(r.data.amount).toLocaleString('th-TH')} ฿`}
+                </p>
+              ) : null}
             </Row>
           )
         })}

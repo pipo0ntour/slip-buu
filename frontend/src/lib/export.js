@@ -65,8 +65,12 @@ const CSV_COLUMNS = [
 ]
 
 // ครอบค่าด้วย "..." เมื่อมีคอมมา/อัญประกาศ/ขึ้นบรรทัด และ escape อัญประกาศซ้อนด้วยการเบิ้ล
+// + กัน CSV formula injection: ค่าที่ขึ้นต้นด้วย = + - @ หรือ tab/CR จะถูก Excel ตีความเป็น "สูตร"
+//   (ฟิลด์อย่าง note/ชื่อผู้โอน มาจาก OCR/ผู้ใช้พิมพ์เอง วางใจไม่ได้) → เติม ' นำหน้าให้เป็นข้อความเฉย ๆ
+//   ยกเว้นตัวเลขล้วน (เช่น -12.5) ที่ต้องคงไว้ให้ Excel คำนวณได้
 function csvCell(value) {
-  const str = value == null ? '' : String(value)
+  let str = value == null ? '' : String(value)
+  if (/^[=+\-@\t\r]/.test(str) && !/^-?\d+(\.\d+)?$/.test(str)) str = `'${str}`
   return /[",\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str
 }
 

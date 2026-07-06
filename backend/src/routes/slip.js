@@ -100,9 +100,19 @@ async function processSlip(file, lineUserId, type = 'income', qrPayload = null) 
 
   const isReceipt = ocr.docKind === 'receipt'
 
-  // 3. กรองรูปที่ไม่ใช่เอกสารการเงิน (ไม่ใช่สลิป/ใบเสร็จ หรืออ่านยอดเงินไม่ได้)
-  if (ocr.docKind === 'other' || ocr.amount == null) {
-    return { status: 'error', message: 'ไม่พบข้อมูลสลิปหรือใบเสร็จในรูปนี้ กรุณาถ่ายใหม่ให้ชัดเจน' }
+  // 3. กรองรูปที่ไม่ใช่เอกสารการเงิน — บอก "สาเหตุ" ให้ผู้ใช้รู้ว่าพลาดเพราะอะไร ไม่ใช่ผิดพลาดลอย ๆ
+  //    (รูปผิดประเภท vs รูปเบลออ่านยอดไม่ได้ วิธีแก้ของผู้ใช้ต่างกัน: เปลี่ยนรูป vs ถ่ายใหม่)
+  if (ocr.docKind === 'other') {
+    return {
+      status: 'error',
+      message: 'รูปไม่ถูกต้อง — ต้องเป็นรูปสลิปโอนเงิน ใบเสร็จ หรือตั๋วเท่านั้น',
+    }
+  }
+  if (ocr.amount == null) {
+    return {
+      status: 'error',
+      message: `อ่านยอดเงินจาก${isReceipt ? 'ใบเสร็จ' : 'สลิป'}ไม่สำเร็จ — รูปอาจเบลอ มืด หรือถ่ายไม่ครบใบ กรุณาถ่ายใหม่ให้ชัดเจน`,
+    }
   }
 
   // 3.1 ยอดที่ OCR อ่านได้ต้องสมเหตุสมผล (บวก + ไม่ทะลุ NUMERIC(12,2)) — ไม่งั้น insert จะ
@@ -638,8 +648,11 @@ router.post('/upload-batch', rateLimitByUser, upload.array('images', 10), async 
 
   // ทิศทางเงินของสลิปชุดนี้ — ผู้ใช้เลือกตอนอัปโหลด (ค่าอื่น/ไม่ส่ง = รายรับ ตามพฤติกรรมเดิม)
   const type = req.body.type === 'expense' ? 'expense' : 'income'
-  // QR ที่ client ถอดมาแล้ว (on-device) — ส่งทีละใบเหมือนไฟล์ (1 รูป/request) ใช้กันสลิปซ้ำก่อนเรียก OCR
-  const qrPayload = typeof req.body.qrPayload === 'string' ? req.body.qrPayload : null
+  // QR ที่ client ถอดมาแล้ว (on-device) — ใช้กันสลิปซ้ำก่อนเรียก OCR
+  // รับเฉพาะตอนส่ง "ไฟล์เดียว" เท่านั้น: QR เป็นของใบไหนใบหนึ่ง ถ้าส่งหลายไฟล์ในชุดเดียว
+  // แล้วใช้ QR เดียวกับทุกใบ ใบที่ 2 เป็นต้นไปจะโดนตีว่าซ้ำผิด ๆ (frontend ปัจจุบันส่งทีละใบอยู่แล้ว)
+  const qrPayload =
+    files.length === 1 && typeof req.body.qrPayload === 'string' ? req.body.qrPayload : null
 
   // ต้องมี user ก่อน insert slip (กัน FK violation) + เก็บโปรไฟล์ล่าสุด
   await upsertUser(req.lineUser)

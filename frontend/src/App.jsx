@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { initLiff } from './hooks/useLiff'
+import { setStorageUser } from './lib/userScope'
 import { ToastProvider } from './context/ToastContext'
 import TabBar from './components/TabBar'
 import Home from './pages/Home'
@@ -21,7 +22,12 @@ export default function App() {
 
   useEffect(() => {
     initLiff(LIFF_ID)
-      .then(setProfile)
+      .then((p) => {
+        // ผูก localStorage (งบ/เป้า/อวตาร) กับบัญชีนี้ "ก่อน" เรนเดอร์หน้าใด ๆ —
+        // เครื่องเดียวกันสลับหลายบัญชี LINE จะไม่เห็นข้อมูลของกันและกัน
+        setStorageUser(p?.userId)
+        setProfile(p)
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])

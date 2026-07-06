@@ -30,7 +30,8 @@ const app = express()
 // อยู่หลัง proxy ของแพลตฟอร์ม (Render/Railway) — ให้ req.ip เป็น IP ผู้ใช้จริงจาก X-Forwarded-For
 app.set('trust proxy', 1)
 
-// จำกัด CORS เฉพาะโดเมนที่กำหนดใน CORS_ORIGIN (คั่นด้วย comma) — ถ้าไม่ตั้งไว้จะอนุญาตทุก origin
+// จำกัด CORS เฉพาะโดเมนที่กำหนดใน CORS_ORIGIN (คั่นด้วย comma) — fail-closed:
+// "ไม่ตั้งไว้ = ไม่อนุญาต origin ใดเลย" (เดิมเปิดทุก origin — ลืมตั้งบน host จริงแล้วกลายเป็นเปิดกว้าง)
 // แต่ละ entry เป็นได้ทั้ง origin เป๊ะ (https://app.vercel.app) หรือ pattern ที่มี * เช่น
 // https://frontend-*.vercel.app — ครอบคลุม URL ใหม่ที่ Vercel ออกให้ทุกครั้งที่ deploy (กัน CORS พังหลัง redeploy)
 const allowRules = (process.env.CORS_ORIGIN || '')
@@ -43,21 +44,21 @@ const allowRules = (process.env.CORS_ORIGIN || '')
       : entry
   )
 
+if (!allowRules.length) {
+  console.warn('CORS_ORIGIN ไม่ได้ตั้งค่า — ปิดกั้นทุก cross-origin (ตั้งค่าเป็นโดเมน frontend เพื่อให้เว็บเรียก API ได้)')
+}
+
 const isAllowedOrigin = (origin) =>
   allowRules.some((rule) => (rule instanceof RegExp ? rule.test(origin) : rule === origin))
 
 app.use(
-  cors(
-    allowRules.length
-      ? {
-          origin(origin, cb) {
-            // อนุญาต request ที่ไม่มี origin (health check / curl) และ origin ที่เข้ากับ allowlist
-            // origin อื่นๆ: ไม่ใส่ CORS header (browser บล็อกเอง) แทนการ throw เป็น 500
-            cb(null, !origin || isAllowedOrigin(origin))
-          },
-        }
-      : undefined
-  )
+  cors({
+    origin(origin, cb) {
+      // อนุญาต request ที่ไม่มี origin (health check / curl) และ origin ที่เข้ากับ allowlist
+      // origin อื่นๆ: ไม่ใส่ CORS header (browser บล็อกเอง) แทนการ throw เป็น 500
+      cb(null, !origin || isAllowedOrigin(origin))
+    },
+  })
 )
 app.use(express.json())
 
