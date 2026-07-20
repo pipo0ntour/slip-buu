@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Slip-BUU — ระบบสแกนสลิปโอนเงินและจัดการรายรับรายจ่ายบน LINE (OCR ด้วย Gemini 2.5 Flash)">
+<meta name="color-scheme" content="light dark">
+<meta property="og:title" content="Slip-BUU · ระบบสแกนสลิปบน LINE">
+<meta property="og:description" content="ถ่ายสลิปโอนเงิน แล้วให้ AI ลงบัญชีให้ ในแอป LINE">
+<style>*,*::before,*::after{box-sizing:border-box}html{-webkit-text-size-adjust:100%}img,svg{max-width:100%}</style>
+<title>Slip-BUU · ระบบสแกนสลิปบน LINE</title>
+<style>
+  :root {
+    --bg: #F3F7F3;
+    --surface: #FFFFFF;
+    --surface-2: #EDF4ED;
+    --ink: #101C13;
+    --ink-soft: #4E5A51;
+    --ink-mute: #7E8B80;
+    --line: #DCE7DD;
+    --brand: #06C755;
+    --brand-strong: #05A948;
+    --brand-ink: #067A3B;
+    --brand-wash: rgba(6,199,85,.10);
+    --neg: #D93B40;
+    --neg-wash: rgba(217,59,64,.12);
+    --shadow-sm: 0 1px 2px rgba(16,28,19,.06), 0 2px 8px rgba(16,28,19,.05);
+    --shadow-md: 0 6px 20px rgba(16,28,19,.09), 0 2px 6px rgba(16,28,19,.05);
+    --shadow-lg: 0 24px 60px -18px rgba(11,74,38,.28);
+    --font-sans: 'Leelawadee UI','IBM Plex Sans Thai','Noto Sans Thai','Sarabun',-apple-system,'Segoe UI',system-ui,'Helvetica Neue',Arial,sans-serif;
+    --font-mono: ui-monospace,'Cascadia Code','SFMono-Regular','Segoe UI Mono',Consolas,monospace;
+    --maxw: 1080px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0A110D;
+      --surface: #111A14;
+      --surface-2: #16211A;
+      --ink: #E9F2EB;
+      --ink-soft: #9EADA2;
+      --ink-mute: #6E7D72;
+      --line: #223129;
+      --brand: #23D46F;
+      --brand-strong: #23D46F;
+      --brand-ink: #62E89A;
+      --brand-wash: rgba(35,212,111,.13);
+      --neg: #F16A6E;
+      --neg-wash: rgba(241,106,110,.15);
+      --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+      --shadow-md: 0 8px 24px rgba(0,0,0,.42);
+      --shadow-lg: 0 28px 64px -18px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #F3F7F3; --surface: #FFFFFF; --surface-2: #EDF4ED; --ink: #101C13;
+    --ink-soft: #4E5A51; --ink-mute: #7E8B80; --line: #DCE7DD; --brand: #06C755;
+    --brand-strong: #05A948; --brand-ink: #067A3B; --brand-wash: rgba(6,199,85,.10);
+    --neg: #D93B40; --neg-wash: rgba(217,59,64,.12);
+    --shadow-sm: 0 1px 2px rgba(16,28,19,.06), 0 2px 8px rgba(16,28,19,.05);
+    --shadow-md: 0 6px 20px rgba(16,28,19,.09), 0 2px 6px rgba(16,28,19,.05);
+    --shadow-lg: 0 24px 60px -18px rgba(11,74,38,.28);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0A110D; --surface: #111A14; --surface-2: #16211A; --ink: #E9F2EB;
+    --ink-soft: #9EADA2; --ink-mute: #6E7D72; --line: #223129; --brand: #23D46F;
+    --brand-strong: #23D46F; --brand-ink: #62E89A; --brand-wash: rgba(35,212,111,.13);
+    --neg: #F16A6E; --neg-wash: rgba(241,106,110,.15);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+    --shadow-md: 0 8px 24px rgba(0,0,0,.42);
+    --shadow-lg: 0 28px 64px -18px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+  h1, h2, h3 { text-wrap: balance; margin: 0; line-height: 1.15; letter-spacing: -0.01em; }
+  p { margin: 0; }
+  a { color: inherit; }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  /* ---------- Header ---------- */
+  .site-head {
+    position: sticky; top: 0; z-index: 50;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: saturate(1.4) blur(12px);
+    -webkit-backdrop-filter: saturate(1.4) blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .site-head .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+  .brand-lockup { display: flex; align-items: center; gap: 10px; }
+  .brand-mark { width: 32px; height: 32px; border-radius: 10px; background: var(--brand);
+    display: grid; place-items: center; box-shadow: 0 4px 12px var(--brand-wash); flex: none; }
+  .brand-mark svg { width: 19px; height: 19px; display: block; }
+  .brand-name { font-weight: 800; font-size: 1.15rem; letter-spacing: -0.02em; }
+  .brand-name span { color: var(--brand-ink); }
+  .line-pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 0.78rem; font-weight: 700; color: var(--brand-ink);
+    background: var(--brand-wash); border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
+    padding: 6px 12px; border-radius: 999px;
+  }
+  .line-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brand); flex: none; }
+
+  /* ---------- Hero ---------- */
+  .hero { position: relative; overflow: hidden; }
+  .hero::before {
+    content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(60% 55% at 82% 8%, var(--brand-wash), transparent 70%),
+      radial-gradient(50% 40% at 5% 90%, var(--brand-wash), transparent 72%);
+  }
+  .hero .wrap { position: relative; z-index: 1;
+    display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 56px;
+    align-items: center; padding-top: 72px; padding-bottom: 84px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 0.8rem; font-weight: 700; letter-spacing: 0.04em;
+    color: var(--brand-ink); text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+  .eyebrow::before { content: ""; width: 22px; height: 2px; background: var(--brand); border-radius: 2px; }
+  .hero h1 { font-size: clamp(2.15rem, 5.2vw, 3.35rem); font-weight: 800; letter-spacing: -0.03em; }
+  .hero h1 em { font-style: normal; color: var(--brand-ink); }
+  .hero .lede { margin-top: 20px; font-size: 1.075rem; color: var(--ink-soft); max-width: 34ch; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+    padding: 8px 14px; font-size: 0.85rem; font-weight: 600; color: var(--ink);
+    box-shadow: var(--shadow-sm);
+  }
+  .chip svg { width: 15px; height: 15px; color: var(--brand-ink); flex: none; }
+
+  /* ---------- Phone mock ---------- */
+  .phone-stage { display: flex; justify-content: center; position: relative; }
+  .phone-stage::after {
+    content: ""; position: absolute; width: 260px; height: 260px; border-radius: 50%;
+    background: radial-gradient(circle, var(--brand-wash), transparent 68%);
+    z-index: 0; filter: blur(6px);
+  }
+  .phone {
+    position: relative; z-index: 1;
+    width: 296px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 40px;
+    padding: 12px; box-shadow: var(--shadow-lg);
+  }
+  .phone-screen { background: var(--surface-2); border-radius: 30px; overflow: hidden;
+    border: 1px solid var(--line); }
+  .phone-top { background: var(--brand); color: #fff; padding: 16px 18px 20px; position: relative; }
+  .phone-notch { position: absolute; top: 9px; left: 50%; transform: translateX(-50%);
+    width: 74px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.5); }
+  .phone-top-row { display: flex; align-items: center; gap: 9px; margin-top: 14px; }
+  .phone-top-row .m { width: 26px; height: 26px; border-radius: 8px; background: rgba(255,255,255,.22);
+    display: grid; place-items: center; flex: none; }
+  .phone-top-row .m svg { width: 15px; height: 15px; }
+  .phone-top-row b { font-size: 0.95rem; font-weight: 700; letter-spacing: -0.01em; }
+  .phone-top-row small { display: block; font-size: 0.72rem; opacity: 0.85; font-weight: 500; }
+  .phone-body { padding: 14px; display: grid; gap: 12px; }
+
+  .ok-banner {
+    display: flex; align-items: center; gap: 9px; font-size: 0.83rem; font-weight: 700;
+    color: var(--brand-ink); background: var(--brand-wash); border-radius: 12px; padding: 9px 12px;
+  }
+  .ok-banner .tick { width: 18px; height: 18px; border-radius: 50%; background: var(--brand);
+    display: grid; place-items: center; flex: none; }
+  .ok-banner .tick svg { width: 11px; height: 11px; color: #fff; }
+
+  .slip-card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+    box-shadow: var(--shadow-sm); overflow: hidden; }
+  .slip-amt { padding: 14px 16px 12px; }
+  .slip-amt .lbl { font-size: 0.72rem; color: var(--ink-mute); font-weight: 600; }
+  .slip-amt .val { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; margin-top: 1px; }
+  .slip-amt .val small { font-size: 0.9rem; font-weight: 700; color: var(--ink-soft); }
+  .tag-income { display: inline-flex; align-items: center; gap: 5px; font-size: 0.7rem; font-weight: 700;
+    color: var(--brand-ink); background: var(--brand-wash); padding: 3px 9px; border-radius: 999px; margin-top: 8px; }
+  .perf { height: 0; border-top: 1.5px dashed var(--line); margin: 0 12px; position: relative; }
+  .perf::before, .perf::after { content: ""; position: absolute; top: -8px; width: 14px; height: 14px;
+    border-radius: 50%; background: var(--surface-2); }
+  .perf::before { left: -18px; box-shadow: inset -1px 0 0 var(--line); }
+  .perf::after { right: -18px; box-shadow: inset 1px 0 0 var(--line); }
+  .slip-rows { padding: 12px 16px 14px; display: grid; gap: 9px; }
+  .slip-rows .r { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 0.8rem; }
+  .slip-rows .r .k { color: var(--ink-mute); font-weight: 500; flex: none; }
+  .slip-rows .r .v { color: var(--ink); font-weight: 600; text-align: right; }
+
+  .mini-report { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .mini-report .cell { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 9px 10px; text-align: center; }
+  .mini-report .cell .k { font-size: 0.65rem; color: var(--ink-mute); font-weight: 600; }
+  .mini-report .cell .n { font-size: 0.82rem; font-weight: 800; margin-top: 2px; letter-spacing: -0.01em; }
+  .mini-report .cell .n.pos { color: var(--brand-ink); }
+  .mini-report .cell .n.neg { color: var(--neg); }
+
+  /* ---------- Section scaffolding ---------- */
+  section { padding: 76px 0; }
+  .sec-head { max-width: 62ch; margin-bottom: 44px; }
+  .kicker { font-size: 0.8rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--brand-ink); margin-bottom: 12px; }
+  .sec-head h2 { font-size: clamp(1.6rem, 3.4vw, 2.15rem); font-weight: 800; letter-spacing: -0.025em; }
+  .sec-head p { margin-top: 12px; color: var(--ink-soft); font-size: 1.02rem; }
+  .band { background: var(--surface-2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+
+  /* ---------- Workflow ---------- */
+  .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; position: relative; }
+  .flow-step { position: relative; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 18px; padding: 22px 20px 24px; box-shadow: var(--shadow-sm); }
+  .flow-step .num { font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700;
+    color: var(--brand-ink); letter-spacing: 0.02em; }
+  .flow-step .ico { width: 42px; height: 42px; border-radius: 12px; background: var(--brand-wash);
+    display: grid; place-items: center; margin: 12px 0 14px; }
+  .flow-step .ico svg { width: 22px; height: 22px; color: var(--brand-ink); }
+  .flow-step h3 { font-size: 1.05rem; font-weight: 700; }
+  .flow-step p { margin-top: 7px; font-size: 0.9rem; color: var(--ink-soft); }
+  .flow-step .arrow { position: absolute; top: 40px; right: -13px; z-index: 2; width: 22px; height: 22px;
+    border-radius: 50%; background: var(--surface); border: 1px solid var(--line); display: grid; place-items: center; }
+  .flow-step .arrow svg { width: 12px; height: 12px; color: var(--ink-mute); }
+  .flow-step:last-child .arrow { display: none; }
+
+  /* ---------- Benefits ---------- */
+  .benefits { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+  .benefit { display: flex; gap: 16px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 18px; padding: 24px; box-shadow: var(--shadow-sm);
+    transition: transform .18s ease, box-shadow .18s ease; }
+  .benefit:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
+  .benefit .b-ico { width: 46px; height: 46px; border-radius: 13px; flex: none;
+    background: var(--brand); display: grid; place-items: center; box-shadow: 0 5px 14px var(--brand-wash); }
+  .benefit .b-ico svg { width: 24px; height: 24px; color: #fff; }
+  .benefit h3 { font-size: 1.1rem; font-weight: 700; }
+  .benefit p { margin-top: 6px; color: var(--ink-soft); font-size: 0.95rem; }
+
+  /* ---------- Features ---------- */
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .feature { display: flex; align-items: flex-start; gap: 12px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+  .feature .f-ico { width: 34px; height: 34px; border-radius: 10px; flex: none; background: var(--brand-wash);
+    display: grid; place-items: center; }
+  .feature .f-ico svg { width: 18px; height: 18px; color: var(--brand-ink); }
+  .feature b { font-size: 0.95rem; font-weight: 700; display: block; }
+  .feature span { font-size: 0.83rem; color: var(--ink-soft); }
+
+  /* ---------- Use cases ---------- */
+  .cases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .case { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 26px;
+    box-shadow: var(--shadow-sm); position: relative; overflow: hidden; }
+  .case::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--brand); }
+  .case .tag { font-size: 0.75rem; font-weight: 800; letter-spacing: 0.03em; color: var(--brand-ink);
+    text-transform: uppercase; }
+  .case h3 { font-size: 1.15rem; font-weight: 700; margin-top: 8px; }
+  .case p { margin-top: 10px; color: var(--ink-soft); font-size: 0.95rem; }
+  .case .quote { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line);
+    font-size: 0.9rem; color: var(--ink); font-weight: 500; font-style: italic; }
+
+  /* ---------- Footer ---------- */
+  .foot { border-top: 1px solid var(--line); padding: 48px 0 56px; }
+  .foot .wrap { display: flex; flex-wrap: wrap; gap: 32px 48px; justify-content: space-between; align-items: flex-start; }
+  .foot h4 { font-size: 0.78rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--ink-mute); margin-bottom: 14px; }
+  .stack-list { display: flex; flex-wrap: wrap; gap: 8px; max-width: 560px; }
+  .stack-list span { font-size: 0.82rem; font-weight: 600; color: var(--ink); background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 8px; padding: 5px 11px; }
+  .foot-brand { display: flex; align-items: center; gap: 11px; }
+  .foot-note { font-size: 0.85rem; color: var(--ink-mute); margin-top: 12px; max-width: 30ch; }
+
+  /* ---------- Reveal animation ---------- */
+  .js .reveal { opacity: 0; transform: translateY(18px); transition: opacity .6s ease, transform .6s cubic-bezier(.2,.7,.2,1); }
+  .js .reveal.in { opacity: 1; transform: none; }
+  .js .reveal.d1 { transition-delay: .06s; }
+  .js .reveal.d2 { transition-delay: .12s; }
+  .js .reveal.d3 { transition-delay: .18s; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .js .reveal { opacity: 1; transform: none; transition: none; }
+    .benefit { transition: none; }
+  }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 900px) {
+    .hero .wrap { grid-template-columns: 1fr; gap: 44px; padding-top: 52px; padding-bottom: 64px; }
+    .phone-stage { order: -1; }
+    .flow { grid-template-columns: repeat(2, 1fr); }
+    .flow-step .arrow { display: none; }
+    .features { grid-template-columns: repeat(2, 1fr); }
+    .cases { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 620px) {
+    .wrap { padding: 0 18px; }
+    section { padding: 60px 0; }
+    .benefits { grid-template-columns: 1fr; }
+    .flow { grid-template-columns: 1fr; }
+    .features { grid-template-columns: 1fr; }
+    .line-pill { display: none; }
+    .hero .lede { max-width: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <div class="brand-lockup">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M13 7h22v33l-3.7-2.8-3.6 2.8-3.7-2.8-3.6 2.8-3.7-2.8L13 40V7z" stroke="white" stroke-width="3" stroke-linejoin="round"/>
+          <path d="M19 15h10M19 21h6" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+          <path d="M19 29l3.5 3.5L29 26" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="brand-name">Slip<span>-BUU</span></div>
+    </div>
+    <div class="line-pill"><span class="dot"></span>ใช้งานผ่าน LINE เท่านั้น</div>
+  </div>
+</header>
+
+<main>
+  <!-- HERO -->
+  <section class="hero">
+    <div class="wrap">
+      <div class="hero-copy">
+        <div class="eyebrow reveal">LINE LIFF · จัดการเงินร้านค้า</div>
+        <h1 class="reveal d1">ถ่ายสลิปโอนเงิน <em>แล้วให้ AI ลงบัญชีให้</em> ในแอป LINE</h1>
+        <p class="lede reveal d2">ลูกค้าเปิดจาก Rich Menu ใน LINE ถ่ายรูปสลิป — ระบบอ่านยอดเงิน ธนาคาร และเลขอ้างอิงให้เอง กันสลิปซ้ำ แล้วสรุปเป็นรายงานรายรับ–รายจ่ายทันที ไม่ต้องพิมพ์เอง ไม่ต้องเปิด Excel</p>
+        <div class="chips reveal d3">
+          <span class="chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>
+            อ่านได้ 10 สลิป/ครั้ง
+          </span>
+          <span class="chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 4v5c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9V7z"/><path d="M9 12l2 2 4-4"/></svg>
+            กันสลิปซ้ำ 2 ชั้น
+          </span>
+          <span class="chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v4M3 5h4M6 17v4M4 19h4M13 3l2.5 6.5L22 12l-6.5 2.5L13 21l-2.5-6.5L4 12l6.5-2.5z"/></svg>
+            OCR ด้วย Gemini 2.5 Flash
+          </span>
+        </div>
+      </div>
+
+      <div class="phone-stage reveal d2">
+        <div class="phone" role="img" aria-label="ตัวอย่างหน้าจอแอป Slip-BUU แสดงผลการสแกนสลิปสำเร็จ ยอด 1,500 บาท">
+          <div class="phone-screen">
+            <div class="phone-top">
+              <div class="phone-notch"></div>
+              <div class="phone-top-row">
+                <div class="m" aria-hidden="true">
+                  <svg viewBox="0 0 48 48" fill="none"><path d="M13 7h22v33l-3.7-2.8-3.6 2.8-3.7-2.8-3.6 2.8-3.7-2.8L13 40V7z" stroke="white" stroke-width="3" stroke-linejoin="round"/><path d="M19 29l3.5 3.5L29 26" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+                <div><b>ส่งสลิปโอนเงิน</b><small>สแกน 1 รายการ</small></div>
+              </div>
+            </div>
+            <div class="phone-body">
+              <div class="ok-banner">
+                <span class="tick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4L19 7"/></svg></span>
+                บันทึกสลิปสำเร็จ
+              </div>
+
+              <div class="slip-card">
+                <div class="slip-amt">
+                  <div class="lbl">จำนวนเงิน</div>
+                  <div class="val tnum">฿1,500<small>.00</small></div>
+                  <div class="tag-income">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                    รายรับ
+                  </div>
+                </div>
+                <div class="perf" aria-hidden="true"></div>
+                <div class="slip-rows tnum">
+                  <div class="r"><span class="k">ผู้โอน</span><span class="v">สมชาย ใจดี</span></div>
+                  <div class="r"><span class="k">ธนาคาร</span><span class="v">กสิกรไทย</span></div>
+                  <div class="r"><span class="k">เลขอ้างอิง</span><span class="v">202506081234</span></div>
+                  <div class="r"><span class="k">วันเวลา</span><span class="v">8 มิ.ย. 14:30</span></div>
+                </div>
+              </div>
+
+              <div class="mini-report">
+                <div class="cell"><div class="k">รายรับ</div><div class="n pos tnum">฿45,000</div></div>
+                <div class="cell"><div class="k">รายจ่าย</div><div class="n neg tnum">฿8,000</div></div>
+                <div class="cell"><div class="k">คงเหลือ</div><div class="n tnum">฿37,000</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- WORKFLOW -->
+  <section class="band" id="workflow">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="kicker">ขั้นตอนการทำงาน</div>
+        <h2>จากสลิปในแชท ถึงรายงานที่พร้อมใช้ ใน 4 ขั้น</h2>
+        <p>ทุกอย่างเกิดขึ้นในแอป LINE — ผู้ใช้แค่ถ่ายรูป ระบบจัดการที่เหลือให้เองทั้งหมด</p>
+      </div>
+      <div class="flow">
+        <div class="flow-step reveal">
+          <div class="num">01</div>
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L8 6H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-4z"/><circle cx="12" cy="13" r="3.5"/></svg></div>
+          <h3>ถ่าย / เลือกสลิป</h3>
+          <p>เปิดจาก Rich Menu ใน LINE ถ่ายหรือเลือกจากคลัง เลือกได้สูงสุด 10 ใบต่อครั้ง</p>
+          <div class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+        </div>
+        <div class="flow-step reveal d1">
+          <div class="num">02</div>
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15l-1.9-4.1L5.5 9l4.6-1.4z"/><path d="M18 15l.9 2.1L21 18l-2.1.9L18 21l-.9-2.1L15 18l2.1-.9z"/></svg></div>
+          <h3>AI อ่านข้อมูล</h3>
+          <p>Gemini 2.5 Flash ดึงยอดเงิน ผู้โอน ธนาคาร เลขอ้างอิง และวันเวลา ออกมาเป็นข้อมูลอัตโนมัติ</p>
+          <div class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+        </div>
+        <div class="flow-step reveal d2">
+          <div class="num">03</div>
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 4v5c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9V7z"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <h3>กันซ้ำ + บันทึก</h3>
+          <p>ตรวจสลิปซ้ำ 2 ชั้น (ลายนิ้วมือรูป + เลขอ้างอิง) แล้วบันทึกลงฐานข้อมูลอย่างปลอดภัย</p>
+          <div class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+        </div>
+        <div class="flow-step reveal d3">
+          <div class="num">04</div>
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="6" rx="1"/><rect x="12.5" y="7" width="3" height="10" rx="1"/><rect x="18" y="13" width="3" height="4" rx="1"/></svg></div>
+          <h3>สรุป + รายงาน</h3>
+          <p>ดูยอดรายวัน/เดือน/ปี รายรับ–รายจ่าย–คงเหลือ และส่งสรุปเข้าแชทหรือกลุ่ม LINE ได้ทันที</p>
+          <div class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BENEFITS -->
+  <section id="benefits">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="kicker">ทำไมต้อง Slip-BUU</div>
+        <h2>ตัดงานจดบัญชีมือทิ้ง ให้เหลือแค่ถ่ายรูป</h2>
+      </div>
+      <div class="benefits">
+        <div class="benefit reveal">
+          <div class="b-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15l-1.9-4.1L5.5 9l4.6-1.4z"/></svg></div>
+          <div>
+            <h3>ไม่ต้องคีย์ข้อมูลเอง</h3>
+            <p>AI อ่านยอดเงิน ธนาคาร และเลขอ้างอิงจากสลิปให้ครบ ลดเวลาจดบัญชีและความผิดพลาดจากการพิมพ์มือ</p>
+          </div>
+        </div>
+        <div class="benefit reveal d1">
+          <div class="b-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 4v5c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9V7z"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <div>
+            <h3>กันสลิปซ้ำ ตรวจ 2 ชั้น</h3>
+            <p>เทียบลายนิ้วมือของไฟล์รูป (SHA-256) และเลขอ้างอิง — ส่งสลิปเดิมซ้ำหรือรูปเดิมซ้ำ ระบบเตือนทันที</p>
+          </div>
+        </div>
+        <div class="benefit reveal">
+          <div class="b-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 11V7a5 5 0 0 1 10 0v4"/><rect x="4" y="11" width="16" height="10" rx="2"/></svg></div>
+          <div>
+            <h3>อยู่ในไลน์ ไม่ต้องโหลดแอป</h3>
+            <p>เปิดจาก Rich Menu ใช้ได้เลย ยืนยันตัวตนด้วย LINE Login — เปิดผ่านเบราว์เซอร์ตรง ๆ ไม่ได้ ปลอดภัยกว่า</p>
+          </div>
+        </div>
+        <div class="benefit reveal d1">
+          <div class="b-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></div>
+          <div>
+            <h3>เห็นภาพรวมเงินทันที</h3>
+            <p>รายงานรายวัน/เดือน/ปี พร้อม Insights กราฟ 6 เดือน งบประมาณ และเป้าหมายออม — ครบในที่เดียว</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="band" id="features">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="kicker">ความสามารถ</div>
+        <h2>ครบตั้งแต่รับสลิป ยันวางแผนการเงิน</h2>
+      </div>
+      <div class="features">
+        <div class="feature reveal"><div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 20h8"/></svg></div><div><b>สแกนหลายสลิปพร้อมกัน</b><span>อัปโหลดทีเดียวได้สูงสุด 10 ใบ</span></div></div>
+        <div class="feature reveal d1"><div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></div><div><b>เพิ่มรายการเงินสดเอง</b><span>บันทึกรายจ่ายที่ไม่มีสลิปได้</span></div></div>
+        <div class="feature reveal d2"><div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg></div><div><b>รายงานรายวัน/เดือน/ปี</b><span>แยกรายรับ–รายจ่าย–คงเหลือ</span></div></div>
+        <div class="feature reveal"><div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 4-5"/></svg></div><div><b>Insights + คำแนะนำ</b><span>กราฟ 6 เดือน + หมวดที่ใช้จ่ายเยอะ</span></div></div>
+        <div class="feature reveal d1"><div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg></div><div><b>ค้นหารายการ</b><span>หาสลิปหรือธุรกรรมย้อนหลังได้</span></div></div>
+        <div class="feature reveal d2"><div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 12l4-2M12 7v5"/></svg></div><div><b>งบประมาณ &amp; เป้าหมาย</b><span>ตั้งงบรายเดือนและเป้าหมายออม</span></div></div>
+        <div class="feature reveal"><div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></div><div><b>แก้ไข &amp; จัดหมวดหมู่</b><span>แก้ยอด เพิ่มโน้ต ตั้งหมวดของรายการ</span></div></div>
+        <div class="feature reveal d1"><div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 11l4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></div><div><b>ส่งออก PDF / Excel</b><span>ดาวน์โหลดรายงานไปใช้ต่อได้</span></div></div>
+        <div class="feature reveal d2"><div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h5l4 2v-4h5a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1z"/></svg></div><div><b>ส่งสรุปเข้าแชท LINE</b><span>เลือกแชท/กลุ่มด้วย Target Picker</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- USE CASES -->
+  <section id="usecases">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="kicker">ตัวอย่างการใช้งาน</div>
+        <h2>เหมาะกับใครบ้าง</h2>
+      </div>
+      <div class="cases">
+        <div class="case reveal">
+          <div class="tag">แม่ค้าออนไลน์</div>
+          <h3>ปิดร้านตอนไหน รู้ยอดขายตอนนั้น</h3>
+          <p>ลูกค้าโอนแล้วส่งสลิปมาในแชท ตอนปิดร้านสแกนทีเดียวหลายใบ ระบบรวมยอดให้เสร็จ ไม่ต้องนั่งบวกเลขเอง</p>
+          <div class="quote">“ถ่ายสลิปที่ค้างไว้ 10 ใบ รู้ยอดวันนี้ใน 10 วินาที”</div>
+        </div>
+        <div class="case reveal d1">
+          <div class="tag">ร้านค้า / คาเฟ่</div>
+          <h3>ดูกำไรจริงในแต่ละเดือน</h3>
+          <p>บันทึกทั้งรายรับจากสลิปลูกค้า และรายจ่ายค่าของ–ค่าเงินสด แยกหมวดชัด เห็นยอดคงเหลือสุทธิรายเดือน</p>
+          <div class="quote">“รายรับ รายจ่าย คงเหลือ อยู่หน้าเดียว”</div>
+        </div>
+        <div class="case reveal d2">
+          <div class="tag">ใช้ส่วนตัว</div>
+          <h3>คุมงบและตั้งเป้าออม</h3>
+          <p>เก็บสลิปโอนของตัวเอง ตั้งงบรายเดือน ตั้งเป้าหมายออม แล้วดู Insights ว่าหมวดไหนใช้จ่ายเกินตัว</p>
+          <div class="quote">“เห็นภาพว่าเงินหมดไปกับอะไร”</div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- FOOTER -->
+<footer class="foot">
+  <div class="wrap">
+    <div>
+      <div class="foot-brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M13 7h22v33l-3.7-2.8-3.6 2.8-3.7-2.8-3.6 2.8-3.7-2.8L13 40V7z" stroke="white" stroke-width="3" stroke-linejoin="round"/>
+            <path d="M19 15h10M19 21h6" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+            <path d="M19 29l3.5 3.5L29 26" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="brand-name">Slip<span>-BUU</span></div>
+      </div>
+      <p class="foot-note">ระบบสแกนสลิปโอนเงินและจัดการรายรับรายจ่าย ใช้งานผ่าน LINE Official Account เท่านั้น</p>
+    </div>
+    <div>
+      <h4>เทคโนโลยีที่ใช้</h4>
+      <div class="stack-list">
+        <span>LINE LIFF</span>
+        <span>React + Vite</span>
+        <span>TailwindCSS</span>
+        <span>Node.js + Express</span>
+        <span>Supabase (PostgreSQL)</span>
+        <span>Gemini 2.5 Flash</span>
+        <span>Vercel</span>
+        <span>Render</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+  document.documentElement.classList.add('js');
+  (function () {
+    var els = document.querySelectorAll('.reveal');
+    var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce || !('IntersectionObserver' in window)) {
+      els.forEach(function (el) { el.classList.add('in'); });
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+    els.forEach(function (el) { io.observe(el); });
+  })();
+</script>
+</body>
+</html>
