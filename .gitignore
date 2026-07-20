@@ -10,6 +10,8 @@ node_modules/
 !.env.example
 # มี Figma personal access token อยู่ข้างใน — ห้าม commit
 .mcp.json
+# Codex CLI config (mcp_servers.figma มี FIGMA_API_KEY จริง) — ห้าม commit
+.codex/
 # รูป reference ที่ดึงจาก Figma (ไว้ดูประกอบ ไม่ต้องขึ้น repo)
 figma-ref/
 
