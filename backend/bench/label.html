@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slip Bench — Labeling</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; background: #f4f4f5; color: #18181b; }
+  header { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #e4e4e7; padding: 12px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; z-index: 10; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; }
+  button, label.btn { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #d4d4d8; background: #fff; cursor: pointer; }
+  button.primary { background: #16a34a; color: #fff; border-color: #16a34a; }
+  .count { color: #71717a; font-size: 13px; }
+  main { max-width: 900px; margin: 0 auto; padding: 16px; }
+  .card { background: #fff; border: 1px solid #e4e4e7; border-radius: 12px; padding: 14px; margin-bottom: 14px; display: grid; grid-template-columns: 240px 1fr; gap: 16px; }
+  .card img { width: 100%; border-radius: 8px; border: 1px solid #e4e4e7; cursor: zoom-in; object-fit: contain; max-height: 360px; }
+  .fname { font-size: 12px; color: #71717a; word-break: break-all; margin-bottom: 8px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .grid .full { grid-column: 1 / -1; }
+  label.f { display: block; font-size: 12px; font-weight: 600; color: #52525b; }
+  input, select { width: 100%; font: inherit; padding: 7px 9px; border: 1px solid #d4d4d8; border-radius: 7px; margin-top: 2px; }
+  .empty { color: #71717a; padding: 40px; text-align: center; }
+  dialog { border: none; border-radius: 12px; padding: 0; max-width: 92vw; max-height: 92vh; }
+  dialog img { max-width: 92vw; max-height: 92vh; display: block; }
+  @media (max-width: 640px) { .card { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>🏷️ Slip Bench — ทำเฉลย</h1>
+  <label class="btn">1) เลือกรูปสลิปทั้งหมด<input id="imgs" type="file" accept="image/*" multiple hidden></label>
+  <label class="btn">2) โหลดร่าง labels.draft.json (ถ้ามี)<input id="draft" type="file" accept=".json,application/json" hidden></label>
+  <button id="export" class="primary">3) ⬇️ ดาวน์โหลด labels.json</button>
+  <span class="count" id="count">ยังไม่ได้เลือกรูป</span>
+</header>
+
+<main id="list">
+  <p class="empty">เลือกรูปสลิป (ปุ่ม 1) เพื่อเริ่มทำเฉลย — ถ้ามี <code>labels.draft.json</code> จาก predraft ให้โหลดด้วย (ปุ่ม 2) จะได้ไม่ต้องพิมพ์เยอะ</p>
+</main>
+
+<dialog id="zoom"><img></dialog>
+
+<script>
+const FIELDS = ['docKind', 'amount', 'senderName', 'receiverName', 'bankName', 'referenceNo', 'transactionDate']
+let draft = {}          // { filename: {fields} } จากไฟล์ร่าง
+const state = new Map() // filename -> { url, inputs:{field: el} }
+
+document.getElementById('draft').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; if (!f) return
+  try { draft = JSON.parse(await f.text()); render() } catch { alert('อ่าน JSON ไม่ได้') }
+})
+
+document.getElementById('imgs').addEventListener('change', (e) => {
+  for (const f of e.target.files) {
+    if (state.has(f.name)) URL.revokeObjectURL(state.get(f.name).url)
+    state.set(f.name, { url: URL.createObjectURL(f), inputs: {} })
+  }
+  render()
+})
+
+document.getElementById('export').addEventListener('click', () => {
+  if (!state.size) return alert('ยังไม่มีรูป')
+  const out = {}
+  for (const [name, s] of state) {
+    const row = {}
+    for (const fld of FIELDS) {
+      let v = s.inputs[fld]?.value?.trim() ?? ''
+      if (fld === 'amount') v = v === '' ? null : Number(v)
+      row[fld] = v
+    }
+    out[name] = row
+  }
+  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob); a.download = 'labels.json'; a.click()
+})
+
+function render() {
+  const list = document.getElementById('list')
+  document.getElementById('count').textContent = `${state.size} รูป`
+  if (!state.size) return
+  list.innerHTML = ''
+  for (const [name, s] of state) {
+    const d = draft[name] || {}
+    const card = document.createElement('div'); card.className = 'card'
+    const img = document.createElement('img'); img.src = s.url; img.loading = 'lazy'
+    img.onclick = () => { const z = document.getElementById('zoom'); z.querySelector('img').src = s.url; z.showModal() }
+    const right = document.createElement('div')
+    right.innerHTML = `<div class="fname">${name}</div><div class="grid"></div>`
+    const grid = right.querySelector('.grid')
+    s.inputs = {}
+    for (const fld of FIELDS) grid.appendChild(fieldEl(fld, d[fld], s.inputs))
+    card.append(img, right); list.appendChild(card)
+  }
+}
+
+function fieldEl(fld, val, inputs) {
+  const wrap = document.createElement('label'); wrap.className = 'f'
+  const labelText = { docKind: 'ชนิด', amount: 'ยอดเงิน', senderName: 'ผู้โอน', receiverName: 'ผู้รับ/ร้าน', bankName: 'ธนาคาร', referenceNo: 'เลขอ้างอิง', transactionDate: 'วันที่ (YYYY-MM-DD)' }[fld]
+  wrap.textContent = labelText
+  if (['amount', 'referenceNo', 'transactionDate', 'docKind'].includes(fld)) wrap.classList.add('full')
+  let el
+  if (fld === 'docKind') {
+    el = document.createElement('select')
+    for (const o of ['slip', 'receipt', 'other']) { const op = document.createElement('option'); op.value = op.textContent = o; el.appendChild(op) }
+    el.value = val || 'slip'
+  } else {
+    el = document.createElement('input')
+    if (fld === 'amount') { el.type = 'number'; el.step = '0.01' }
+    if (fld === 'transactionDate') el.placeholder = '2025-06-08'
+    el.value = val == null ? '' : val
+  }
+  inputs[fld] = el
+  wrap.appendChild(el)
+  return wrap
+}
+
+document.getElementById('zoom').addEventListener('click', (e) => e.currentTarget.close())
+</script>
+</body>
+</html>

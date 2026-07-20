@@ -3,3 +3,7 @@ node_modules
 
 # รูปใบเสร็จ/สลิปตัวอย่างสำหรับเทส OCR (scripts/doc-live.mjs) — ข้อมูลส่วนตัว ห้าม commit
 receipt-samples/
+
+# OCR benchmark (bench/) — รูปสลิปตัวอย่าง + เฉลย + ผลลัพธ์ = ข้อมูลส่วนตัว ห้าม commit
+bench/dataset/
+bench/out/
