@@ -7,6 +7,7 @@ import { apiPostForm } from '@/lib/api'
 import { decodeQrFromFile } from '@/lib/qr'
 import AddSheet from '@/components/AddSheet'
 import NoteScan from '@/components/NoteScan'
+import SlipReview from '@/components/SlipReview'
 import ProductForm from '@/components/ProductForm'
 import CartoonAvatar from '@/components/CartoonAvatar'
 import GradientHeader from '@/components/GradientHeader'
@@ -32,22 +33,28 @@ export default function Home({ profile }) {
   const [productImage, setProductImage] = useState(null) // รูปสินค้าที่เพิ่งถ่าย → ส่งเข้าฟอร์มสินค้า
   const [avatarFace] = useState(loadAvatarFace) // อวตารที่เก็บไว้ (โหลดตอน mount; จัดการในหน้า "ฉัน")
   const [previewUrl, setPreviewUrl] = useState(null) // รูปสลิปที่กดดูจากรายการผลลัพธ์
+  const [reviewItems, setReviewItems] = useState(null) // ใบที่ OCR อ่านได้ รอผู้ใช้ทวน/แก้ในชีต ([{ file, imageUrl, data }])
 
   // คืน object URL ทั้งหมดตอน unmount (ออกจากหน้าหลังอัปโหลด) กัน memory leak —
   // ใช้ ref สะท้อน state ล่าสุด เพราะ cleanup ของ useEffect([]) จะอ่านค่า ณ ตอน unmount
   // (revoke ลิงก์ที่ไม่ใช่ blob เช่น signed URL ของรูปสินค้า เป็น no-op ไม่มีผลเสีย)
   const itemsRef = useRef(items)
   const resultsRef = useRef(results)
+  // รูปที่ย้ายเข้าหน้าทวน — ไม่ผูกกับ state (ผู้ใช้ลบการ์ดในชีตได้) เก็บลิสต์ URL ไว้คืน memory ตอนเริ่มชุดใหม่/unmount
+  const reviewUrlsRef = useRef([])
   itemsRef.current = items
   resultsRef.current = results
   useEffect(() => () => {
     itemsRef.current?.forEach((it) => it.imageUrl && URL.revokeObjectURL(it.imageUrl))
     resultsRef.current?.forEach((r) => r.imageUrl && URL.revokeObjectURL(r.imageUrl))
+    reviewUrlsRef.current?.forEach((u) => u && URL.revokeObjectURL(u))
   }, [])
 
   function addFiles(fileList) {
-    // เริ่มชุดใหม่ ล้างผลเดิม — คืน memory ของรูปที่ค้างอยู่ในผลลัพธ์รอบก่อนด้วย
+    // เริ่มชุดใหม่ ล้างผลเดิม — คืน memory ของรูปที่ค้างอยู่ในผลลัพธ์/หน้าทวนรอบก่อนด้วย
     setPreviewUrl(null)
+    reviewUrlsRef.current?.forEach(u => u && URL.revokeObjectURL(u))
+    reviewUrlsRef.current = []
     setResults(prev => {
       prev?.forEach(r => { if (r.imageUrl) URL.revokeObjectURL(r.imageUrl) })
       return null
@@ -119,11 +126,14 @@ export default function Home({ profile }) {
     if (list.length) setResults(prev => [...list, ...(prev || [])])
   }
 
-  async function handleUpload() {
+  // อ่านสลิป/ใบเสร็จทีละใบ (ยังไม่บันทึก) → รวมใบที่อ่านได้เปิด "หน้าทวน" ให้แก้ก่อนบันทึก
+  // ใบที่ซ้ำ/อ่านไม่ออก เด้งขึ้น "ผลล่าสุด" ทันที (บันทึกไม่ได้อยู่แล้ว) แยกจากใบที่รอทวน
+  async function handleScan() {
     if (!items.length || loading) return
     setLoading(true)
     const total = items.length
-    const list = []
+    const reviewList = [] // ใบที่อ่านได้ รอทวน: { file, imageUrl, data }
+    const errorList = []  // ใบซ้ำ/พลาด: { status, message, imageUrl }
     try {
       // ส่งทีละใบ — แสดงความคืบหน้าได้จริง และใบไหนล้มเหลว (เช่นติดโควต้า OCR) ใบที่เหลือไปต่อได้
       for (let i = 0; i < total; i++) {
@@ -136,10 +146,9 @@ export default function Home({ profile }) {
         const qrPayload = await decodeQrFromFile(items[i].file)
         if (qrPayload) form.append('qrPayload', qrPayload)
 
-        // แนบรูป local ของใบนี้ไปกับผลลัพธ์ — ผู้ใช้กดดูได้ว่าใบไหนซ้ำ/ผิดพลาด
-        const imageUrl = items[i].imageUrl
+        const { file, imageUrl } = items[i]
         try {
-          const res = await apiPostForm('/api/slip/upload-batch', form)
+          const res = await apiPostForm('/api/slip/scan-batch', form)
           if (res.status === 401) {
             toast({ message: 'เซสชันหมดอายุ กรุณาปิดแล้วเปิดใหม่ผ่านเมนูใน LINE', type: 'error' })
             return // เก็บรูปที่เหลือไว้ให้ส่งใหม่หลังเปิดแอปอีกรอบ
@@ -147,31 +156,47 @@ export default function Home({ profile }) {
           const data = await res.json().catch(() => ({}))
           if (!res.ok) {
             // เอาข้อความจริงจาก server มาแสดง (เช่น "ไฟล์ใหญ่เกิน 10MB" / "ทำรายการถี่เกินไป")
-            list.push({ status: 'error', message: data.message || 'เกิดข้อผิดพลาด', imageUrl })
+            errorList.push({ status: 'error', message: data.message || 'เกิดข้อผิดพลาด', imageUrl })
             continue
           }
-          list.push(...(data.results || []).map(r => ({ ...r, imageUrl })))
+          for (const r of data.results || []) {
+            if (r.status === 'success') reviewList.push({ file, imageUrl, data: r.data })
+            else errorList.push({ ...r, imageUrl }) // duplicate / error
+          }
         } catch {
-          list.push({ status: 'error', message: 'เกิดข้อผิดพลาด กรุณาลองใหม่', imageUrl })
+          errorList.push({ status: 'error', message: 'เกิดข้อผิดพลาด กรุณาลองใหม่', imageUrl })
         }
       }
 
-      // ไม่ revoke object URL ที่นี่ — รูปยังถูกใช้แสดงในผลลัพธ์ (ล้างตอนเริ่มชุดใหม่ใน addFiles)
+      // ย้ายรูปจาก staging → หน้าทวน/ผลลัพธ์ (ไม่ revoke ที่นี่ — reviewUrlsRef/addFiles ดูแลตอนเริ่มชุดใหม่)
       setItems([])
-      setResults(list)
+      setResults(errorList) // โชว์ซ้ำ/พลาดทันที ส่วนใบที่อ่านได้รอทวนในชีต
+      reviewUrlsRef.current = reviewList.map(r => r.imageUrl)
 
-      const ok = list.filter(r => r.status === 'success').length
-      const fail = list.length - ok
-      toast({
-        message: fail === 0
-          ? `บันทึกสำเร็จ ${ok} รายการ`
-          : `สำเร็จ ${ok} · ซ้ำ/ผิดพลาด ${fail}`,
-        type: fail === 0 ? 'success' : 'warning',
-      })
+      if (reviewList.length) {
+        setReviewItems(reviewList) // เปิดหน้าทวน
+        // มีใบที่อ่านได้ แต่บางใบซ้ำ/พลาด — เตือนให้รู้ว่ามีใบถูกข้าม (รายละเอียดอยู่ใน "ผลล่าสุด" หลังปิดชีต)
+        if (errorList.length) {
+          toast({ message: `อ่านได้ ${reviewList.length} ใบ · ข้าม/ซ้ำ ${errorList.length}`, type: 'warning' })
+        }
+      } else {
+        // ไม่มีใบที่อ่านได้เลย — สรุปเหตุผลให้ผู้ใช้ (ดูรายละเอียดรายใบใน "ผลล่าสุด")
+        const dup = errorList.filter(r => r.status === 'duplicate').length
+        const err = errorList.length - dup
+        toast({
+          message: err === 0 ? `ทั้งหมดเป็นรายการซ้ำ (${dup})` : `อ่านไม่สำเร็จ ${err}${dup ? ` · ซ้ำ ${dup}` : ''}`,
+          type: 'warning',
+        })
+      }
     } finally {
       setLoading(false)
       setProgress(null)
     }
+  }
+
+  // บันทึกจากหน้าทวนเสร็จ — เติมผลที่บันทึกแล้วขึ้นบนสุดของ "ผลล่าสุด" (รูปแนบมากับ result แล้ว)
+  function handleReviewSaved(savedResults) {
+    if (savedResults?.length) setResults(prev => [...savedResults, ...(prev || [])])
   }
 
   return (
@@ -277,7 +302,7 @@ export default function Home({ profile }) {
             size="xl"
             className="w-full rounded-2xl mt-5"
             disabled={items.length === 0 || loading}
-            onClick={handleUpload}
+            onClick={handleScan}
           >
             {loading ? (
               <>
@@ -362,6 +387,16 @@ export default function Home({ profile }) {
           toast={toast}
           onSaved={handleNoteSaved}
           onClose={() => setShowNote(false)}
+        />
+      )}
+
+      {/* หน้าทวนผลลัพธ์ OCR สลิป/ใบเสร็จ ก่อนบันทึก — รูปเก็บฝั่ง client ระหว่างทวน ส่งกลับตอนบันทึกจริง */}
+      {reviewItems && (
+        <SlipReview
+          initialItems={reviewItems}
+          toast={toast}
+          onSaved={handleReviewSaved}
+          onClose={() => setReviewItems(null)}
         />
       )}
 

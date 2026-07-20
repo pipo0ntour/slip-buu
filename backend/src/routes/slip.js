@@ -36,6 +36,14 @@ const toValidAmount = (v) => {
   return Math.round(n * 100) / 100
 }
 
+// ค่าธรรมเนียม: อนุญาต 0 ได้ (ต่างจาก amount) — ค่าว่าง/ติดลบ/เกินเพดาน = null
+const toValidFee = (v) => {
+  if (v == null || v === '') return null
+  const n = Number(v)
+  if (!Number.isFinite(n) || n < 0 || n > MAX_AMOUNT) return null
+  return Math.round(n * 100) / 100
+}
+
 // ข้อความบอกว่าซ้ำกับรายการไหน — ร้านค้าจะได้เช็คย้อนได้ว่าบันทึกไปเมื่อไหร่ ยอดเท่าไร
 function describeDuplicate(row, reason = '') {
   const parts = []
@@ -227,6 +235,204 @@ async function processSlip(file, lineUserId, type = 'income', qrPayload = null) 
           transactionAt: ocr.transactionAt,
           fee: ocr.fee,
         },
+  }
+}
+
+/**
+ * สแกนสลิป/ใบเสร็จ 1 ไฟล์ "เพื่อทวนก่อนบันทึก": ตรวจซ้ำ → OCR → กรอง/validate — แต่ยัง "ไม่บันทึก/ไม่เก็บรูป"
+ * คืน { status:'duplicate'|'error', message } เมื่อหยุด, หรือ { status:'success', data:{...} } ให้ผู้ใช้ทวน/แก้
+ * รูปถูกส่งกลับมาอีกครั้งตอน scan-save (กันรูปกำพร้าถ้าผู้ใช้ทวนแล้วยกเลิก — retention กวาดจาก record ใน DB เท่านั้น)
+ */
+async function scanSlip(file, lineUserId, type = 'income', qrPayload = null) {
+  // 1. ตรวจซ้ำด้วย image hash ของไฟล์ต้นฉบับ — เจอตั้งแต่ยังไม่ OCR ประหยัดค่า AI
+  const imageHash = hashBuffer(file.buffer)
+  const dupByHash = await checkByHash(imageHash, lineUserId)
+  if (dupByHash) return { status: 'duplicate', message: describeDuplicate(dupByHash) }
+
+  // 1.5 ตรวจซ้ำด้วย QR (อ่าน on-device ฝั่ง client) — ถ้าซ้ำข้าม OCR ได้เลย
+  const qrRef = (qrPayload || '').trim() || null
+  if (qrRef) {
+    const dupByQr = await checkByQr(qrRef, lineUserId)
+    if (dupByQr) return { status: 'duplicate', message: describeDuplicate(dupByQr, ' — QR สลิปตรงกัน') }
+  }
+
+  // 2. OCR — บีบอัดเวอร์ชันคมชัดพอให้อ่านแม่น (เวอร์ชันเก็บ storage ค่อยทำตอนกดบันทึกจริง)
+  const { buffer: ocrBuffer, mimetype } = await compressImage(file.buffer, file.mimetype, OCR_PRESET)
+  let ocr
+  try {
+    ocr = await ocrDocument(ocrBuffer, mimetype)
+  } catch (err) {
+    console.error('OCR error:', err.message)
+    const quota = /429|quota|too many requests/i.test(err.message || '')
+    return {
+      status: 'error',
+      message: quota
+        ? 'คิวอ่านเต็มชั่วคราว กรุณารอสักครู่แล้วส่งใบนี้ใหม่'
+        : 'อ่านรูปไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
+    }
+  }
+
+  const isReceipt = ocr.docKind === 'receipt'
+  if (ocr.docKind === 'other') {
+    return { status: 'error', message: 'รูปไม่ถูกต้อง — ต้องเป็นรูปสลิปโอนเงิน ใบเสร็จ หรือตั๋วเท่านั้น' }
+  }
+  if (ocr.amount == null) {
+    return {
+      status: 'error',
+      message: `อ่านยอดเงินจาก${isReceipt ? 'ใบเสร็จ' : 'สลิป'}ไม่สำเร็จ — รูปอาจเบลอ มืด หรือถ่ายไม่ครบใบ กรุณาถ่ายใหม่ให้ชัดเจน`,
+    }
+  }
+  const safeAmount = toValidAmount(ocr.amount)
+  if (safeAmount == null) {
+    return { status: 'error', message: 'ยอดเงินที่อ่านได้ผิดปกติ กรุณาตรวจรูปแล้วลองใหม่ หรือเพิ่มรายการเอง' }
+  }
+
+  // 3. ตรวจซ้ำด้วยเลขอ้างอิง — เฉพาะสลิป (ใบเสร็จเลขไม่นิ่ง ใช้ image hash พอ)
+  if (ocr.referenceNo && !isReceipt) {
+    const dupByRef = await checkByRefNo(ocr.referenceNo, lineUserId)
+    if (dupByRef) return { status: 'duplicate', message: describeDuplicate(dupByRef, ' — เลขอ้างอิงตรงกัน') }
+  }
+
+  // data พร้อมให้ผู้ใช้ทวน/แก้ (ทุกฟิลด์แก้ได้ในหน้าทวน) — docKind/qrRef ส่งกลับมาตอน scan-save
+  //   ใบเสร็จ: ร้าน → receiver_name, หมวด/สรุปสินค้าไว้ที่ category/note | สลิป: ครบทั้งผู้โอน/ผู้รับ/ธนาคาร
+  const effectiveType = isReceipt ? 'expense' : type
+  return {
+    status: 'success',
+    data: {
+      docKind: ocr.docKind, // 'slip' | 'receipt'
+      type: effectiveType,
+      amount: safeAmount,
+      sender_name: isReceipt ? null : ocr.senderName,
+      receiver_name: isReceipt ? ocr.merchant : ocr.receiverName,
+      bank_name: isReceipt ? null : ocr.bankName,
+      reference_no: ocr.referenceNo,
+      transaction_at: isReceipt ? (ocr.transactionAt || new Date().toISOString()) : ocr.transactionAt,
+      category: isReceipt ? ocr.category : null,
+      note: isReceipt ? ocr.itemsSummary : null,
+      fee: isReceipt ? null : ocr.fee,
+      sender_account: isReceipt ? null : ocr.senderAccount,
+      receiver_account: isReceipt ? null : ocr.receiverAccount,
+      qrRef,
+    },
+  }
+}
+
+// insert สลิป 1 แถว พร้อม fallback ถอยคอลัมน์ทีละขั้นถ้า DB ยังไม่ migrate ครบ (เกาะ pattern เดียวกับ processSlip)
+// คืน { status:'success' } | { status:'duplicate', message } | { status:'error', message }
+async function insertSlipRow({ baseRow, extraCols, type, imagePath, qrRef }) {
+  const legacyImageUrl = imagePath
+    ? supabase.storage.from('slips').getPublicUrl(imagePath).data.publicUrl
+    : null
+  const attempts = [
+    { ...baseRow, ...extraCols, type, image_path: imagePath, qr_ref: qrRef },
+    { ...baseRow, ...extraCols, type, image_path: imagePath },
+    { ...baseRow, ...extraCols, type, image_url: legacyImageUrl },
+    { ...baseRow, type, image_url: legacyImageUrl },
+  ]
+  let dbErr = null
+  for (const row of attempts) {
+    ;({ error: dbErr } = await supabase.from('slips').insert(row))
+    if (!dbErr || !/column|could not find|schema cache/i.test(dbErr.message)) break
+    console.warn('Insert fallback (DB ยังไม่ migrate ครบ — รัน migration ล่าสุดด้วย):', dbErr.message)
+  }
+  if (dbErr) {
+    if (/duplicate key|23505/i.test(dbErr.message)) {
+      return { status: 'duplicate', message: 'รายการซ้ำ — ใบนี้เพิ่งถูกบันทึกไปแล้ว' }
+    }
+    console.error('DB insert error:', dbErr.message)
+    return { status: 'error', message: 'บันทึกข้อมูลไม่สำเร็จ' }
+  }
+  return { status: 'success' }
+}
+
+/**
+ * บันทึกสลิป/ใบเสร็จ 1 ใบที่ผู้ใช้ทวน/แก้จากหน้าทวนแล้ว: เช็คซ้ำอีกรอบ → อัปรูปเข้า storage → insert
+ * ใช้ค่าที่ผู้ใช้ยืนยัน (item) เป็นหลัก — docKind กำหนดแค่ layout คอลัมน์ (สลิป vs ใบเสร็จ)
+ */
+async function saveReviewedSlip(file, item, lineUserId) {
+  const imageHash = hashBuffer(file.buffer)
+  // เช็คซ้ำอีกรอบ — เผื่อระหว่างทวนมีการบันทึกใบเดิมจากที่อื่น (unique constraint กันเคส race ตอน insert อีกชั้น)
+  const dupByHash = await checkByHash(imageHash, lineUserId)
+  if (dupByHash) return { status: 'duplicate', message: describeDuplicate(dupByHash) }
+
+  const amount = toValidAmount(item?.amount)
+  if (amount == null) {
+    return { status: 'error', message: 'จำนวนเงินต้องมากกว่า 0 และไม่เกิน 9,999,999,999.99' }
+  }
+  const isReceipt = item?.docKind === 'receipt'
+  const type = item?.type === 'expense' ? 'expense' : 'income'
+
+  // วันที่: แก้เป็นค่าที่ parse ไม่ได้/ว่าง → null (รายงานใช้วันบันทึกแทน); ใบเสร็จ fallback เป็นเวลาปัจจุบัน
+  let transactionAt = null
+  if (item?.transaction_at) {
+    const d = new Date(item.transaction_at)
+    if (!isNaN(d.getTime())) transactionAt = d.toISOString()
+  }
+  if (isReceipt && !transactionAt) transactionAt = new Date().toISOString()
+
+  // อัปรูป (บีบอัดเวอร์ชันเก็บหลักฐาน) เข้าบักเก็ต private — เก็บแค่ path แล้วออก signed URL ตอนอ่าน
+  let imagePath = null
+  try {
+    const { buffer: imageBuffer, mimetype } = await compressImage(file.buffer, file.mimetype, STORAGE_PRESET)
+    const filename = `${lineUserId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
+    const { data: up, error: upErr } = await supabase.storage
+      .from('slips')
+      .upload(filename, imageBuffer, { contentType: mimetype })
+    if (up && !upErr) imagePath = filename
+    else if (upErr) console.error('Storage upload error:', upErr.message)
+  } catch (err) {
+    console.error('Slip image process error:', err.message) // รูปพลาด ไม่ทำให้บันทึกรายการล้ม
+  }
+
+  const baseRow = {
+    line_user_id: lineUserId,
+    amount,
+    sender_name: isReceipt ? null : cleanText(item?.sender_name),
+    receiver_name: cleanText(item?.receiver_name),
+    bank_name: isReceipt ? null : cleanText(item?.bank_name),
+    reference_no: cleanText(item?.reference_no, MAX_REF_LEN),
+    transaction_at: transactionAt,
+    image_hash: imageHash,
+    status: 'success',
+  }
+  const extraCols = isReceipt
+    ? { category: cleanText(item?.category), note: cleanText(item?.note, MAX_NOTE_LEN), source: 'receipt' }
+    : {
+        fee: toValidFee(item?.fee),
+        sender_account: cleanText(item?.sender_account),
+        receiver_account: cleanText(item?.receiver_account),
+        category: cleanText(item?.category),
+        note: cleanText(item?.note, MAX_NOTE_LEN),
+      }
+  // qr_ref เก็บเช็คซ้ำได้เฉพาะสลิป (ใบเสร็จมัก QR static อันเดิมทุกใบ → จะตีว่าซ้ำผิด ๆ)
+  const qrRefToStore = isReceipt ? null : ((item?.qrRef ?? '').toString().trim() || null)
+
+  const result = await insertSlipRow({ baseRow, extraCols, type, imagePath, qrRef: qrRefToStore })
+  if (result.status !== 'success') {
+    // insert ล้ม/ซ้ำ แต่รูปอัปไปแล้ว → ตามไปลบกันรูปกำพร้า (best-effort)
+    if (imagePath) {
+      supabase.storage.from('slips').remove([imagePath]).then(({ error: rmErr }) => {
+        if (rmErr) console.error('Storage remove (rollback) error:', rmErr.message)
+      })
+    }
+    return result
+  }
+
+  // data สำหรับ ResultSummary ฝั่ง client — หัวข้อ/บรรทัดรอง เหมือนผลจาก processSlip
+  return {
+    status: 'success',
+    message: isReceipt ? 'บันทึกใบเสร็จสำเร็จ' : 'บันทึกสลิปสำเร็จ',
+    data: {
+      amount,
+      type,
+      docKind: isReceipt ? 'receipt' : 'slip',
+      senderName: isReceipt
+        ? baseRow.receiver_name || 'ใบเสร็จ'
+        : baseRow.sender_name || (type === 'expense' ? 'รายจ่าย' : 'รายรับ'),
+      bank: isReceipt ? extraCols.category || 'ใบเสร็จ' : baseRow.bank_name || '',
+      referenceNo: baseRow.reference_no,
+      transactionAt: baseRow.transaction_at,
+    },
   }
 }
 
@@ -636,6 +842,63 @@ router.post('/note-save', rateLimitByUser, async (req, res) => {
     console.error('Note save error:', err)
     res.status(500).json({ status: 'error', message: 'เกิดข้อผิดพลาด กรุณาลองใหม่' })
   }
+})
+
+// ───────────────────── สแกนสลิป/ใบเสร็จ เพื่อทวนก่อนบันทึก (สูงสุด 10) ─────────────────────
+// POST /api/slip/scan-batch — OCR + เช็คซ้ำ แต่ "ยังไม่บันทึก/ไม่เก็บรูป" ให้ผู้ใช้ทวน/แก้ก่อน แล้วค่อย scan-save
+router.post('/scan-batch', rateLimitByUser, upload.array('images', 10), async (req, res) => {
+  const lineUserId = req.lineUser.userId
+  const files = req.files
+  if (!files?.length) return res.status(400).json({ error: 'ไม่พบไฟล์รูป' })
+
+  const type = req.body.type === 'expense' ? 'expense' : 'income'
+  // QR ใช้ได้เฉพาะตอนส่งไฟล์เดียว (frontend สแกนทีละใบเพื่อโชว์ความคืบหน้า) — เหตุผลเดียวกับ upload-batch
+  const qrPayload =
+    files.length === 1 && typeof req.body.qrPayload === 'string' ? req.body.qrPayload : null
+
+  const results = []
+  for (const file of files) {
+    try {
+      results.push(await scanSlip(file, lineUserId, type, qrPayload))
+    } catch (err) {
+      console.error('Scan item error:', err)
+      results.push({ status: 'error', message: 'เกิดข้อผิดพลาด' })
+    }
+  }
+  res.json({ results })
+})
+
+// POST /api/slip/scan-save — บันทึกสลิป/ใบเสร็จที่ผู้ใช้ทวน/แก้แล้ว (ส่งรูปกลับมาพร้อม items[] ลำดับตรงกัน)
+router.post('/scan-save', rateLimitByUser, upload.array('images', 10), async (req, res) => {
+  const lineUserId = req.lineUser.userId
+  const files = req.files || []
+  let items = []
+  try {
+    items = JSON.parse(req.body.items || '[]')
+  } catch {
+    items = []
+  }
+  if (!Array.isArray(items) || !items.length) {
+    return res.status(400).json({ status: 'error', message: 'ไม่มีรายการให้บันทึก' })
+  }
+  // items[i] ต้องคู่กับ files[i] (ลำดับเดียวกัน) — จำนวนไม่ตรง = ข้อมูลไม่ครบ
+  if (items.length !== files.length) {
+    return res.status(400).json({ status: 'error', message: 'ข้อมูลรูปกับรายการไม่ตรงกัน กรุณาลองใหม่' })
+  }
+
+  // ต้องมี user ก่อน insert (กัน FK violation) + เก็บโปรไฟล์ล่าสุด
+  await upsertUser(req.lineUser)
+
+  const results = []
+  for (let i = 0; i < files.length; i++) {
+    try {
+      results.push(await saveReviewedSlip(files[i], items[i], lineUserId))
+    } catch (err) {
+      console.error('Scan-save item error:', err)
+      results.push({ status: 'error', message: 'บันทึกไม่สำเร็จ' })
+    }
+  }
+  res.json({ results })
 })
 
 // ───────────────────── Batch upload (สูงสุด 10) ─────────────────────

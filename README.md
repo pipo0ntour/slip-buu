@@ -64,7 +64,7 @@ slip-buu/
 ├── backend/                   # Node.js API
 │   ├── src/
 │   │   ├── routes/
-│   │   │   ├── slip.js        # POST /api/slip/upload-batch, PATCH /api/slip/:id
+│   │   │   ├── slip.js        # POST /api/slip/scan-batch → scan-save (อ่าน→ทวน→บันทึก), PATCH /api/slip/:id
 │   │   │   └── report.js      # GET  /api/report
 │   │   ├── services/
 │   │   │   ├── gemini.js      # OCR ด้วย Gemini 2.5 Flash (structured output)
@@ -264,30 +264,55 @@ function showAddLineOAPage() {
 > ทุก endpoint ต้องแนบ header `Authorization: Bearer <LINE access token>` (จาก `liff.getAccessToken()`)
 > backend จะยืนยัน token กับ LINE แล้วดึง `line_user_id` เอง — client ส่ง user id เองไม่ได้
 
-### `POST /api/slip/upload-batch`
+### สลิป/ใบเสร็จ: อ่าน → ทวน → บันทึก (flow หลัก)
+
+หน้าแรกอ่านสลิปด้วย 2 ขั้น เพื่อให้ผู้ใช้ "ทวน/แก้ผลลัพธ์ OCR ก่อนบันทึก" (แบบเดียวกับถ่ายโน้ต):
+
+**`POST /api/slip/scan-batch`** — OCR + เช็คซ้ำ แต่ **ยังไม่บันทึก/ไม่เก็บรูป**
 
 ```
 Request: multipart/form-data
-  - images: File[]   (สูงสุด 10)
+  - images: File[]        (สูงสุด 10 — frontend ส่งทีละใบเพื่อโชว์ความคืบหน้า)
+  - type: 'income' | 'expense'   (ทิศทางเงินของสลิป; ใบเสร็จ backend บังคับ expense)
+  - qrPayload: string     (ไม่บังคับ — QR ที่ client ถอด on-device ไว้เช็คซ้ำ)
 
 Response:
 {
   "results": [
     {
       "status": "success" | "duplicate" | "error",
-      "message": "บันทึกสลิปสำเร็จ",
-      "data": {
+      "message": "...",                       // เฉพาะ duplicate/error
+      "data": {                               // เฉพาะ success — ฟิลด์พร้อมให้ผู้ใช้ทวน/แก้
+        "docKind": "slip" | "receipt",
+        "type": "income" | "expense",
         "amount": 1500.00,
-        "senderName": "สมชาย ใจดี",
-        "receiverName": "ร้านค้า",
-        "bank": "กสิกรไทย",
-        "referenceNo": "202506081234",
-        "transactionAt": "2025-06-08T14:30:00Z",
-        "fee": 0
+        "sender_name", "receiver_name", "bank_name", "reference_no",
+        "transaction_at", "category", "note", "fee",
+        "sender_account", "receiver_account",
+        "qrRef": "..."                        // ส่งกลับมาตอน scan-save
       }
     }
   ]
 }
+```
+
+**`POST /api/slip/scan-save`** — บันทึกใบที่ผู้ใช้ทวน/แก้แล้ว (ส่งรูปกลับมาพร้อม `items[]` ลำดับตรงกัน)
+
+```
+Request: multipart/form-data
+  - images: File[]        (รูปเดิม ลำดับตรงกับ items — เก็บฝั่ง client ระหว่างทวน กันรูปกำพร้าถ้ายกเลิก)
+  - items: string(JSON)   [{ docKind, type, amount, sender_name, ..., fee, qrRef }, ...]
+
+Response: { "results": [ { status, message, data: { amount, type, senderName, bank, ... } } ] }
+```
+
+### `POST /api/slip/upload-batch` (legacy — OCR + บันทึกทันทีในสเต็ปเดียว)
+
+คงไว้เผื่อ client เก่า — flow หลักปัจจุบันใช้ `scan-batch` → `scan-save` แทน
+
+```
+Request: multipart/form-data — images: File[] (สูงสุด 10), type, qrPayload
+Response: { "results": [ { status, message, data: { amount, senderName, bank, referenceNo, transactionAt, fee } } ] }
 ```
 
 ### `PATCH /api/slip/:id`
