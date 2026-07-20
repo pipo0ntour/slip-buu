@@ -3,7 +3,7 @@
 #
 # ⚠️ free tier "หลับ" หลังไม่มี request 15 นาที (cold start ~30-60 วิ)
 #    กันหลับด้วย uptime pinger จากภายนอก เคาะ GET / ทุก ~10 นาที — ดูขั้นตอนใน DEPLOY.md
-#    พอไม่หลับ → process รันค้าง → keepAlive + imageRetention (setInterval) ทำงานปกติ ไม่ต้องแยกเป็น cron
+#    พอไม่หลับ → process รันค้าง → keepAlive (setInterval) ทำงานปกติ ไม่ต้องแยกเป็น cron
 services:
   - type: web
     name: slip-buu-api

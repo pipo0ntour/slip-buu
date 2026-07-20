@@ -1,12 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { X, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { apiGet, apiPatchJson, apiDelete } from '@/lib/api'
+import { apiPatchJson, apiDelete } from '@/lib/api'
 import { CATEGORIES } from '@/components/TransactionForm'
-
-// อายุเก็บรูปก่อนลบอัตโนมัติ (ตรงกับ backend imageRetention.js) ต่างตามชนิดรายการ
-//   รูปสินค้า (กรอกเอง source=manual) = 1 วัน, สลิป/ใบเสร็จ/โน้ต = 3 วัน
-const retentionDaysOf = (slip) => (slip?.source === 'manual' ? 1 : 3)
 
 // แปลง ISO → ค่าสำหรับ <input type="datetime-local"> (ตามเวลาเครื่องผู้ใช้)
 function toDatetimeLocal(iso) {
@@ -25,21 +21,6 @@ export default function SlipModal({ slip, toast, onSaved, onDeleted, onClose }) 
   const [form, setForm] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  // รูปสลิปขอแบบ lazy — ลิสต์ส่งมาแค่ has_image (ดู report.js) ค่อยขอ signed URL ตอนเปิดดู
-  const [imageUrl, setImageUrl] = useState(slip.image_url || null)
-  const [imageLoading, setImageLoading] = useState(false)
-
-  useEffect(() => {
-    if (imageUrl || !slip.has_image) return // มี URL แล้ว หรือรายการนี้ไม่มีรูป → ไม่ต้องขอ
-    let alive = true
-    setImageLoading(true)
-    apiGet(`/api/slip/${slip.id}/image`)
-      .then(r => (r.ok ? r.json() : null))
-      .then(j => { if (alive && j?.url) setImageUrl(j.url) })
-      .catch(() => {})
-      .finally(() => { if (alive) setImageLoading(false) })
-    return () => { alive = false }
-  }, [slip.id])
 
   function startEdit() {
     setForm({
@@ -232,20 +213,6 @@ export default function SlipModal({ slip, toast, onSaved, onDeleted, onClose }) 
                 {createdText && <DetailRow label="บันทึกเมื่อ" value={createdText} />}
               </div>
 
-              {imageUrl ? (
-                <img
-                  src={imageUrl}
-                  alt="สลิป"
-                  className="mt-4 w-full rounded-2xl object-contain max-h-[50vh] border border-border"
-                />
-              ) : (slip.has_image && imageLoading) ? (
-                <div className="mt-4 w-full h-48 rounded-2xl border border-border bg-muted animate-pulse" />
-              ) : slip.image_purged_at ? (
-                <div className="mt-4 flex items-start gap-2 rounded-2xl border border-dashed border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-                  <Trash2 className="size-4 mt-0.5 shrink-0" />
-                  <span>รูปถูกลบอัตโนมัติแล้ว (เก็บเกิน {retentionDaysOf(slip)} วัน) — ข้อมูลรายการยังอยู่ครบ</span>
-                </div>
-              ) : null}
             </>
           )}
         </div>

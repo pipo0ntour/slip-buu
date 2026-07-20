@@ -1,7 +1,6 @@
 import express from 'express'
 import { supabase } from '../services/supabase.js'
 import { computeRange, computePreviousRange } from '../services/period.js'
-import { storagePathOf } from '../services/storage.js'
 import { rateLimitReads } from '../services/rateLimit.js'
 
 const router = express.Router()
@@ -80,13 +79,11 @@ router.get('/', rateLimitReads, async (req, res) => {
   // เรียงใหม่→เก่า ตาม "วันที่ทำรายการจริง" ใน JS (PostgREST เรียงตาม COALESCE ไม่ได้) — ปริมาณต่อผู้ใช้ไม่มาก
   slips.sort((a, b) => effectiveDate(b) - effectiveDate(a))
 
-  // รูปสลิปขอแบบ lazy (ดูทีละใบตอนเปิด modal) → ไม่ออก signed URL ให้ทุกใบที่นี่
-  // เพราะ "รายปี" อาจมีหลายร้อยใบ การ sign ทุกใบทั้งที่ดูไม่กี่ใบทำให้รายงานช้า/เปลือง
-  // ส่งแค่ has_image บอกว่ามีรูปไหม แล้วถอด path/url ดิบทิ้ง (กันลิงก์รูป private หลุด)
+  // เลิกเก็บรูปสลิปแล้ว — ถอดคอลัมน์รูป (ถ้า DB รุ่นเก่ายังมี) ออกจาก response กันค่าค้าง/ลิงก์หลุด
   for (const s of slips) {
-    s.has_image = !!storagePathOf(s)
     delete s.image_url
     delete s.image_path
+    delete s.image_purged_at
   }
 
   // ยอดรายจ่ายแยกหมวดของ"ช่วงก่อนหน้า" — ใช้โชว์ลูกศรเทียบ trend ในหน้ารายงาน

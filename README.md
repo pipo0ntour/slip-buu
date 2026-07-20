@@ -12,7 +12,6 @@
 | Backend API | Node.js + Express |
 | ฐานข้อมูล | Supabase (PostgreSQL) |
 | AI / OCR | Google Gemini 2.5 Flash (Vision) |
-| Storage รูปสลิป | Supabase Storage |
 | Hosting Backend | Railway |
 | Hosting Frontend | Vercel |
 | LINE Integration | LINE LIFF SDK + Messaging API |
@@ -297,10 +296,11 @@ Response:
 ```
 
 **`POST /api/slip/scan-save`** — บันทึกใบที่ผู้ใช้ทวน/แก้แล้ว (ส่งรูปกลับมาพร้อม `items[]` ลำดับตรงกัน)
+> ระบบ**ไม่เก็บรูปสลิป** — รูปที่ส่งกลับมาใช้คำนวณ `image_hash` กันบันทึกซ้ำเท่านั้น แล้วปล่อยทิ้ง
 
 ```
 Request: multipart/form-data
-  - images: File[]        (รูปเดิม ลำดับตรงกับ items — เก็บฝั่ง client ระหว่างทวน กันรูปกำพร้าถ้ายกเลิก)
+  - images: File[]        (รูปเดิม ลำดับตรงกับ items — ใช้คำนวณ image_hash กันซ้ำ ไม่เก็บลง storage)
   - items: string(JSON)   [{ docKind, type, amount, sender_name, ..., fee, qrRef }, ...]
 
 Response: { "results": [ { status, message, data: { amount, type, senderName, bank, ... } } ] }

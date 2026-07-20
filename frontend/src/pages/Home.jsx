@@ -101,7 +101,6 @@ export default function Home({ profile }) {
     const isExpense = data.type === 'expense'
     const item = {
       status: 'success',
-      imageUrl: data.image_url || undefined, // รูปสินค้าที่แนบ (signed URL) — ให้ผลล่าสุดกดดูรูปได้
       data: {
         senderName: data.note || data.sender_name || data.category || (isExpense ? 'รายจ่าย' : 'รายรับ'),
         bank: data.category || (isExpense ? 'รายจ่าย' : 'รายรับ'),

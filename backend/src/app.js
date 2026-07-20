@@ -6,7 +6,6 @@ import reportRoute from './routes/report.js'
 import avatarRoute from './routes/avatar.js'
 import { lineAuth } from './services/lineAuth.js'
 import { startKeepAlive } from './services/keepAlive.js'
-import { startImageRetention } from './services/imageRetention.js'
 import { rateLimitByIp } from './services/rateLimit.js'
 
 // ───── Boot guard: กัน config อันตรายหลุดขึ้น production ─────
@@ -76,5 +75,4 @@ const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
   startKeepAlive() // แตะ DB เป็นรอบ กัน Supabase free tier pause
-  startImageRetention() // ลบรูปสลิปที่เก็บเกินกำหนดเป็นรอบ (เก็บรายการไว้ครบ)
 })

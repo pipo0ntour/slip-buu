@@ -4,7 +4,6 @@ import { ocrDocument, ocrNote, parseNoteText, analyzeProduct } from '../services
 import { compressImage, OCR_PRESET, STORAGE_PRESET, imageFileFilter } from '../services/image.js'
 import { hashBuffer, checkByHash, checkByRefNo, checkByQr } from '../services/duplicate.js'
 import { supabase } from '../services/supabase.js'
-import { attachSignedImageUrls, storagePathOf } from '../services/storage.js'
 import { upsertUser } from '../services/users.js'
 import { rateLimitByUser, rateLimitItemOps } from '../services/rateLimit.js'
 
@@ -81,13 +80,8 @@ async function processSlip(file, lineUserId, type = 'income', qrPayload = null) 
     }
   }
 
-  // 2. บีบอัด + หมุนรูปตาม EXIF แยก 2 เวอร์ชัน (ทำพร้อมกัน):
-  //    - ocrBuffer: คมชัด สำหรับให้ OCR อ่านชื่อแม่นขึ้น (ไม่เก็บ)
-  //    - imageBuffer: เล็ก สำหรับเก็บลง Storage เป็นหลักฐาน
-  const [{ buffer: ocrBuffer }, { buffer: imageBuffer, mimetype }] = await Promise.all([
-    compressImage(file.buffer, file.mimetype, OCR_PRESET),
-    compressImage(file.buffer, file.mimetype, STORAGE_PRESET),
-  ])
+  // 2. บีบอัดเวอร์ชันคมชัดพอให้ OCR อ่านชื่อแม่น — ประมวลผลในหน่วยความจำแล้วทิ้ง ไม่เก็บรูปลง storage
+  const { buffer: ocrBuffer, mimetype } = await compressImage(file.buffer, file.mimetype, OCR_PRESET)
 
   // 3. OCR ด้วย Gemini — อ่านได้ทั้ง "สลิปโอนเงิน" และ "ใบเสร็จ/ตั๋ว" (แยกด้วย docKind ใน call เดียว)
   //    ถ้า fail ทั้งหมดให้แจ้ง error ไม่บันทึก record เปล่า
@@ -140,20 +134,8 @@ async function processSlip(file, lineUserId, type = 'income', qrPayload = null) 
     }
   }
 
-  // 5. อัพโหลดรูป (ที่บีบอัดแล้ว) ไป Supabase Storage — บักเก็ตเป็น private
-  //    เก็บเฉพาะ path ใน DB แล้วออก signed URL ตอนอ่าน (กันคนนอกเปิดดูรูปด้วยลิงก์เปล่า ๆ)
-  const filename = `${lineUserId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
-  let imagePath = null
-  const { data: uploaded, error: uploadErr } = await supabase.storage
-    .from('slips')
-    .upload(filename, imageBuffer, { contentType: mimetype })
-  if (uploaded && !uploadErr) {
-    imagePath = filename
-  } else if (uploadErr) {
-    console.error('Storage upload error:', uploadErr.message)
-  }
-
-  // 6. บันทึกลงฐานข้อมูล — ลองจากชุดคอลัมน์ครบสุดก่อน แล้วถอยทีละขั้นถ้า DB ยังไม่ migrate
+  // 5. บันทึกลงฐานข้อมูล — ไม่เก็บรูป (เก็บแค่ image_hash ไว้กันซ้ำ) ลองจากชุดคอลัมน์ครบสุดก่อน
+  //    แล้วถอยทีละขั้นถ้า DB ยังไม่ migrate
   //    ใบเสร็จ = รายจ่ายเสมอ (บังคับ type=expense), เก็บร้านที่ receiver_name, หมวด+สรุปสินค้าไว้ดูย้อนหลัง
   //    + ถ้าอ่านวันที่ไม่ได้ ใช้เวลาที่อัปโหลดแทน (OCR ใบเสร็จอ่านวันที่ไม่นิ่ง — แก้ในรายการทีหลังได้)
   const effectiveType = isReceipt ? 'expense' : type
@@ -173,9 +155,6 @@ async function processSlip(file, lineUserId, type = 'income', qrPayload = null) 
   const extraCols = isReceipt
     ? { category: ocr.category, note: ocr.itemsSummary, source: 'receipt' }
     : { fee: ocr.fee, sender_account: ocr.senderAccount, receiver_account: ocr.receiverAccount }
-  const legacyImageUrl = imagePath
-    ? supabase.storage.from('slips').getPublicUrl(imagePath).data.publicUrl
-    : null
 
   // qr_ref ใช้เช็คซ้ำได้เฉพาะ "สลิป" (QR ตรวจสลิปไม่ซ้ำต่อธุรกรรม) — "ใบเสร็จ" มักพิมพ์ QR พร้อมเพย์/
   // ร้านค้าแบบ static อันเดิมทุกใบ ถ้าเก็บไว้จะทำให้ใบเสร็จคนละใบจากร้านเดียวกันโดนตีว่าซ้ำ → ไม่เก็บ
@@ -183,13 +162,11 @@ async function processSlip(file, lineUserId, type = 'income', qrPayload = null) 
 
   const attempts = [
     // DB ล่าสุด (migration 007): เก็บ qr_ref ไว้เช็คซ้ำด้วย QR ในรอบหน้า (เฉพาะสลิป)
-    { ...baseRow, ...extraCols, type: effectiveType, image_path: imagePath, qr_ref: qrRefToStore },
-    // DB migration 004 (ยังไม่มี qr_ref): เก็บ path สำหรับออก signed URL
-    { ...baseRow, ...extraCols, type: effectiveType, image_path: imagePath },
-    // DB ที่มีถึง 003 (ยังไม่มี image_path): ต้องไม่ทำ type หาย — เก็บ public URL แบบเดิมไปก่อน
-    { ...baseRow, ...extraCols, type: effectiveType, image_url: legacyImageUrl },
+    { ...baseRow, ...extraCols, type: effectiveType, qr_ref: qrRefToStore },
+    // DB ที่ยังไม่มี qr_ref (migration ≥003): ยังมี type/category/source/fee ครบ
+    { ...baseRow, ...extraCols, type: effectiveType },
     // DB เก่าสุด: คอลัมน์พื้นฐานเท่านั้น (ข้อมูลเต็มยังอยู่ใน ocr_raw)
-    { ...baseRow, image_url: legacyImageUrl },
+    { ...baseRow, type: effectiveType },
   ]
 
   let dbErr = null
@@ -241,7 +218,7 @@ async function processSlip(file, lineUserId, type = 'income', qrPayload = null) 
 /**
  * สแกนสลิป/ใบเสร็จ 1 ไฟล์ "เพื่อทวนก่อนบันทึก": ตรวจซ้ำ → OCR → กรอง/validate — แต่ยัง "ไม่บันทึก/ไม่เก็บรูป"
  * คืน { status:'duplicate'|'error', message } เมื่อหยุด, หรือ { status:'success', data:{...} } ให้ผู้ใช้ทวน/แก้
- * รูปถูกส่งกลับมาอีกครั้งตอน scan-save (กันรูปกำพร้าถ้าผู้ใช้ทวนแล้วยกเลิก — retention กวาดจาก record ใน DB เท่านั้น)
+ * รูปถูกส่งกลับมาอีกครั้งตอน scan-save เพื่อคำนวณ image_hash กันซ้ำเท่านั้น (ไม่เก็บรูปลง storage)
  */
 async function scanSlip(file, lineUserId, type = 'income', qrPayload = null) {
   // 1. ตรวจซ้ำด้วย image hash ของไฟล์ต้นฉบับ — เจอตั้งแต่ยังไม่ OCR ประหยัดค่า AI
@@ -256,7 +233,7 @@ async function scanSlip(file, lineUserId, type = 'income', qrPayload = null) {
     if (dupByQr) return { status: 'duplicate', message: describeDuplicate(dupByQr, ' — QR สลิปตรงกัน') }
   }
 
-  // 2. OCR — บีบอัดเวอร์ชันคมชัดพอให้อ่านแม่น (เวอร์ชันเก็บ storage ค่อยทำตอนกดบันทึกจริง)
+  // 2. OCR — บีบอัดเวอร์ชันคมชัดพอให้อ่านแม่น (ประมวลผลแล้วทิ้ง ไม่เก็บรูป)
   const { buffer: ocrBuffer, mimetype } = await compressImage(file.buffer, file.mimetype, OCR_PRESET)
   let ocr
   try {
@@ -318,16 +295,13 @@ async function scanSlip(file, lineUserId, type = 'income', qrPayload = null) {
 }
 
 // insert สลิป 1 แถว พร้อม fallback ถอยคอลัมน์ทีละขั้นถ้า DB ยังไม่ migrate ครบ (เกาะ pattern เดียวกับ processSlip)
+// ไม่เก็บรูป — เก็บแค่ image_hash ใน baseRow ไว้กันซ้ำ
 // คืน { status:'success' } | { status:'duplicate', message } | { status:'error', message }
-async function insertSlipRow({ baseRow, extraCols, type, imagePath, qrRef }) {
-  const legacyImageUrl = imagePath
-    ? supabase.storage.from('slips').getPublicUrl(imagePath).data.publicUrl
-    : null
+async function insertSlipRow({ baseRow, extraCols, type, qrRef }) {
   const attempts = [
-    { ...baseRow, ...extraCols, type, image_path: imagePath, qr_ref: qrRef },
-    { ...baseRow, ...extraCols, type, image_path: imagePath },
-    { ...baseRow, ...extraCols, type, image_url: legacyImageUrl },
-    { ...baseRow, type, image_url: legacyImageUrl },
+    { ...baseRow, ...extraCols, type, qr_ref: qrRef },
+    { ...baseRow, ...extraCols, type },
+    { ...baseRow, type },
   ]
   let dbErr = null
   for (const row of attempts) {
@@ -346,8 +320,8 @@ async function insertSlipRow({ baseRow, extraCols, type, imagePath, qrRef }) {
 }
 
 /**
- * บันทึกสลิป/ใบเสร็จ 1 ใบที่ผู้ใช้ทวน/แก้จากหน้าทวนแล้ว: เช็คซ้ำอีกรอบ → อัปรูปเข้า storage → insert
- * ใช้ค่าที่ผู้ใช้ยืนยัน (item) เป็นหลัก — docKind กำหนดแค่ layout คอลัมน์ (สลิป vs ใบเสร็จ)
+ * บันทึกสลิป/ใบเสร็จ 1 ใบที่ผู้ใช้ทวน/แก้จากหน้าทวนแล้ว: เช็คซ้ำอีกรอบ → insert (ไม่เก็บรูป)
+ * รับ file มาเพื่อคำนวณ image_hash กันซ้ำเท่านั้น แล้วปล่อยทิ้ง — ใช้ค่าที่ผู้ใช้ยืนยัน (item) เป็นหลัก
  */
 async function saveReviewedSlip(file, item, lineUserId) {
   const imageHash = hashBuffer(file.buffer)
@@ -370,20 +344,7 @@ async function saveReviewedSlip(file, item, lineUserId) {
   }
   if (isReceipt && !transactionAt) transactionAt = new Date().toISOString()
 
-  // อัปรูป (บีบอัดเวอร์ชันเก็บหลักฐาน) เข้าบักเก็ต private — เก็บแค่ path แล้วออก signed URL ตอนอ่าน
-  let imagePath = null
-  try {
-    const { buffer: imageBuffer, mimetype } = await compressImage(file.buffer, file.mimetype, STORAGE_PRESET)
-    const filename = `${lineUserId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
-    const { data: up, error: upErr } = await supabase.storage
-      .from('slips')
-      .upload(filename, imageBuffer, { contentType: mimetype })
-    if (up && !upErr) imagePath = filename
-    else if (upErr) console.error('Storage upload error:', upErr.message)
-  } catch (err) {
-    console.error('Slip image process error:', err.message) // รูปพลาด ไม่ทำให้บันทึกรายการล้ม
-  }
-
+  // ไม่เก็บรูป — hashBuffer ด้านบนใช้กันซ้ำอย่างเดียว แล้วปล่อยรูปทิ้ง (ไม่ขึ้น storage)
   const baseRow = {
     line_user_id: lineUserId,
     amount,
@@ -407,16 +368,8 @@ async function saveReviewedSlip(file, item, lineUserId) {
   // qr_ref เก็บเช็คซ้ำได้เฉพาะสลิป (ใบเสร็จมัก QR static อันเดิมทุกใบ → จะตีว่าซ้ำผิด ๆ)
   const qrRefToStore = isReceipt ? null : ((item?.qrRef ?? '').toString().trim() || null)
 
-  const result = await insertSlipRow({ baseRow, extraCols, type, imagePath, qrRef: qrRefToStore })
-  if (result.status !== 'success') {
-    // insert ล้ม/ซ้ำ แต่รูปอัปไปแล้ว → ตามไปลบกันรูปกำพร้า (best-effort)
-    if (imagePath) {
-      supabase.storage.from('slips').remove([imagePath]).then(({ error: rmErr }) => {
-        if (rmErr) console.error('Storage remove (rollback) error:', rmErr.message)
-      })
-    }
-    return result
-  }
+  const result = await insertSlipRow({ baseRow, extraCols, type, qrRef: qrRefToStore })
+  if (result.status !== 'success') return result
 
   // data สำหรับ ResultSummary ฝั่ง client — หัวข้อ/บรรทัดรอง เหมือนผลจาก processSlip
   return {
@@ -435,44 +388,6 @@ async function saveReviewedSlip(file, item, lineUserId) {
     },
   }
 }
-
-// ───────────────────── รูปสลิป (lazy) ─────────────────────
-// GET /api/slip/:id/image — ออก signed URL ของรูปเฉพาะตอนเปิดดูทีละใบ
-// (หน้ารายงานไม่ sign ทุกใบล่วงหน้าเพื่อความเร็ว — ดู report.js)
-router.get('/:id/image', rateLimitItemOps, async (req, res) => {
-  try {
-    const { id } = req.params
-    const lineUserId = req.lineUser.userId
-
-    const doSelect = (cols) =>
-      supabase
-        .from('slips')
-        .select(cols)
-        .eq('id', id)
-        .eq('line_user_id', lineUserId) // ดูได้เฉพาะรูปของตัวเอง
-        .maybeSingle()
-
-    let { data, error } = await doSelect('image_url, image_path')
-    if (error && /column|could not find|schema cache/i.test(error.message)) {
-      ;({ data, error } = await doSelect('image_url'))
-    }
-    if (error) {
-      console.error('Slip image select error:', error.message)
-      return res.status(500).json({ status: 'error', message: 'โหลดรูปไม่สำเร็จ' })
-    }
-    if (!data) {
-      return res.status(404).json({ status: 'error', message: 'ไม่พบสลิป หรือไม่มีสิทธิ์ดู' })
-    }
-
-    await attachSignedImageUrls([data]) // แปลง path → signed URL (in place)
-    const url = data.image_url || null
-    if (!url) return res.status(404).json({ status: 'error', message: 'รายการนี้ไม่มีรูป' })
-    res.json({ status: 'success', url })
-  } catch (err) {
-    console.error('Slip image error:', err)
-    res.status(500).json({ status: 'error', message: 'เกิดข้อผิดพลาด กรุณาลองใหม่' })
-  }
-})
 
 // ───────────────────── แก้ไขข้อมูลสลิป ─────────────────────
 // PATCH /api/slip/:id — แก้ไขข้อมูลที่ OCR อ่านผิด (จำกัดเฉพาะเจ้าของสลิป)
@@ -540,23 +455,15 @@ router.patch('/:id', rateLimitItemOps, async (req, res) => {
     }
 
     // .eq('line_user_id') ทำให้แก้ได้เฉพาะสลิปของตัวเอง — ของคนอื่นจะไม่ match (data = null)
-    const BASE_COLS =
-      'id, amount, sender_name, receiver_name, bank_name, reference_no, transaction_at, image_url, created_at, note, category, type'
-    const doUpdate = (cols) =>
-      supabase
-        .from('slips')
-        .update(update)
-        .eq('id', id)
-        .eq('line_user_id', lineUserId)
-        .select(cols)
-        .maybeSingle()
-
-    // ลองชุดคอลัมน์ใหม่สุดก่อน แล้วถอยทีละขั้นถ้า DB ยังไม่ migrate (006 = image_purged_at, 004 = image_path)
-    let data, error
-    for (const cols of [`${BASE_COLS}, image_path, image_purged_at`, `${BASE_COLS}, image_path`, BASE_COLS]) {
-      ;({ data, error } = await doUpdate(cols))
-      if (!error || !/column|could not find|schema cache/i.test(error.message)) break
-    }
+    const SELECT_COLS =
+      'id, amount, sender_name, receiver_name, bank_name, reference_no, transaction_at, created_at, note, category, type'
+    const { data, error } = await supabase
+      .from('slips')
+      .update(update)
+      .eq('id', id)
+      .eq('line_user_id', lineUserId)
+      .select(SELECT_COLS)
+      .maybeSingle()
 
     if (error) {
       console.error('Slip update error:', error.message)
@@ -566,7 +473,6 @@ router.patch('/:id', rateLimitItemOps, async (req, res) => {
       return res.status(404).json({ status: 'error', message: 'ไม่พบสลิป หรือไม่มีสิทธิ์แก้ไข' })
     }
 
-    await attachSignedImageUrls([data]) // บักเก็ต private — แปลงเป็น signed URL ก่อนตอบ
     res.json({ status: 'success', message: 'แก้ไขข้อมูลสำเร็จ', data })
   } catch (err) {
     console.error('Patch slip error:', err)
@@ -581,20 +487,13 @@ router.delete('/:id', rateLimitItemOps, async (req, res) => {
     const { id } = req.params
     const lineUserId = req.lineUser.userId
 
-    // select รูปกลับมาด้วยเพื่อตามไปลบไฟล์ในบักเก็ต (fallback ถ้า DB ยังไม่มี image_path)
-    const doDelete = (cols) =>
-      supabase
-        .from('slips')
-        .delete()
-        .eq('id', id)
-        .eq('line_user_id', lineUserId)
-        .select(cols)
-        .maybeSingle()
-
-    let { data, error } = await doDelete('id, image_url, image_path')
-    if (error && /column|could not find|schema cache/i.test(error.message)) {
-      ;({ data, error } = await doDelete('id, image_url'))
-    }
+    const { data, error } = await supabase
+      .from('slips')
+      .delete()
+      .eq('id', id)
+      .eq('line_user_id', lineUserId)
+      .select('id')
+      .maybeSingle()
 
     if (error) {
       console.error('Slip delete error:', error.message)
@@ -602,17 +501,6 @@ router.delete('/:id', rateLimitItemOps, async (req, res) => {
     }
     if (!data) {
       return res.status(404).json({ status: 'error', message: 'ไม่พบรายการ หรือไม่มีสิทธิ์ลบ' })
-    }
-
-    // ลบไฟล์รูปในบักเก็ตแบบ best-effort — รายการใน DB ลบไปแล้ว ถ้าลบไฟล์พลาดแค่ log ไว้
-    const path = storagePathOf(data)
-    if (path) {
-      supabase.storage
-        .from('slips')
-        .remove([path])
-        .then(({ error: rmErr }) => {
-          if (rmErr) console.error('Storage remove error:', rmErr.message)
-        })
     }
 
     res.json({ status: 'success', message: 'ลบรายการสำเร็จ' })
@@ -624,7 +512,7 @@ router.delete('/:id', rateLimitItemOps, async (req, res) => {
 
 // ───────────────────── สร้างรายการเอง (ไม่มีสลิป) ─────────────────────
 // POST /api/slip/manual — บันทึกธุรกรรมที่ผู้ใช้กรอกเอง (รายรับ/รายจ่าย) สำหรับรายการที่ไม่มีสลิป
-// รับรูปแนบ (ไม่บังคับ) ผ่าน field `image` — เช่นถ่ายรูปสินค้าที่ซื้อไว้เป็นหลักฐาน
+// upload.single('image') คงไว้เพื่อ parse ฟอร์ม multipart จาก client เท่านั้น — ไม่เก็บรูปแล้ว (ทิ้ง req.file)
 router.post('/manual', rateLimitByUser, upload.single('image'), async (req, res) => {
   try {
     const lineUserId = req.lineUser.userId
@@ -646,24 +534,6 @@ router.post('/manual', rateLimitByUser, upload.single('image'), async (req, res)
     // ต้องมี user ก่อน insert (กัน FK violation) + เก็บโปรไฟล์ล่าสุด
     await upsertUser(req.lineUser)
 
-    // รูปแนบ (ถ้ามี) — บีบอัดแล้วอัปโหลดเข้าบักเก็ตเดียวกับสลิป เก็บแค่ path (บักเก็ต private)
-    // ไม่ตรวจซ้ำ/ไม่ OCR เพราะเป็นรูปสินค้า ไม่ใช่สลิปโอนเงิน
-    let imagePath = null
-    if (req.file) {
-      try {
-        // รูปสินค้า — ไม่ OCR แค่เก็บเป็นหลักฐาน ใช้ preset เล็กพอ ประหยัดพื้นที่
-        const { buffer, mimetype } = await compressImage(req.file.buffer, req.file.mimetype, STORAGE_PRESET)
-        const filename = `${lineUserId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
-        const { data: up, error: upErr } = await supabase.storage
-          .from('slips')
-          .upload(filename, buffer, { contentType: mimetype })
-        if (up && !upErr) imagePath = filename
-        else if (upErr) console.error('Manual image upload error:', upErr.message)
-      } catch (err) {
-        console.error('Manual image process error:', err.message) // รูปพลาด ไม่ทำให้บันทึกรายการล้ม
-      }
-    }
-
     const row = {
       line_user_id: lineUserId,
       amount,
@@ -679,15 +549,8 @@ router.post('/manual', rateLimitByUser, upload.single('image'), async (req, res)
     }
 
     const SELECT_COLS =
-      'id, amount, type, sender_name, receiver_name, bank_name, note, category, reference_no, transaction_at, image_url, created_at'
-    const doInsert = (extra, cols) =>
-      supabase.from('slips').insert({ ...row, ...extra }).select(cols).single()
-
-    // ลองแบบมี image_path ก่อน (DB migration 004) แล้วถอยถ้า DB ยังไม่มีคอลัมน์นั้น
-    let { data, error } = await doInsert({ image_path: imagePath }, `${SELECT_COLS}, image_path`)
-    if (error && /column|could not find|schema cache/i.test(error.message)) {
-      ;({ data, error } = await doInsert({}, SELECT_COLS))
-    }
+      'id, amount, type, sender_name, receiver_name, bank_name, note, category, reference_no, transaction_at, created_at'
+    const { data, error } = await supabase.from('slips').insert(row).select(SELECT_COLS).single()
 
     if (error) {
       if (/column|could not find|schema cache/i.test(error.message)) {
@@ -699,7 +562,6 @@ router.post('/manual', rateLimitByUser, upload.single('image'), async (req, res)
       return res.status(500).json({ status: 'error', message: 'บันทึกรายการไม่สำเร็จ' })
     }
 
-    await attachSignedImageUrls([data]) // บักเก็ต private — แปลงรูปสินค้าเป็น signed URL ก่อนตอบ
     res.json({ status: 'success', message: 'บันทึกรายการสำเร็จ', data })
   } catch (err) {
     console.error('Manual slip error:', err)
