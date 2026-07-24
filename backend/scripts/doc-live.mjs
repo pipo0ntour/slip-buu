@@ -1,3 +1,5 @@
+// ⚠️ LEGACY — ส่วนที่ดึง "สลิปจริงจาก Supabase" (image_path) ใช้ไม่ได้แล้ว (เลิกเก็บรูป)
+//    ส่วนใบเสร็จ local ยังพอใช้อ้างอิงได้; เก็บไว้เป็น harness เทส docKind
 // (ชั่วคราว) เทสกันรีเกรสชัน unified ocrDocument — ยิงผ่าน "ระบบจริง" (backend rotation: Gemini→Groq)
 // กับ สลิปจริงจาก Supabase + ใบเสร็จ local เพื่อยืนยันว่า docKind แยกถูก และสลิปเดิมไม่แย่ลง
 import 'dotenv/config'

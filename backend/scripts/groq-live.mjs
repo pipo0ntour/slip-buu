@@ -1,3 +1,5 @@
+// ⚠️ LEGACY — พึ่ง "รูปสลิปใน Supabase" (image_path) ซึ่งเลิกเก็บแล้ว → ปัจจุบันไม่มีรูปให้ดึง
+//    เก็บไว้เป็นตัวอย่างยิง Groq vision + json_object mode
 // สคริปต์ทดสอบจริง (รันมือ ไม่ใช่ unit test) — ดึงสลิปจริงจาก Supabase แล้วยิงผ่าน Groq
 // ใช้ยืนยันว่า vision + json_object mode + คุณภาพการอ่านใช้ได้ ก่อน deploy
 import 'dotenv/config'

@@ -1,3 +1,5 @@
+// ⚠️ LEGACY — พึ่ง "รูปสลิปใน Supabase" (image_path) ซึ่งเลิกเก็บแล้ว → ปัจจุบันไม่มีรูปให้ดึง
+//    ใช้ไม่ได้จนกว่าจะกลับไปเก็บรูป; เก็บไว้เป็นตัวอย่าง harness เทส OCR ผ่านระบบจริง
 // ทดสอบ ocrSlip ผ่านโมดูลจริง (รันมือ) — ดึงสลิปจริงจาก Supabase แล้วอ่านผ่านระบบหมุน backend
 import 'dotenv/config'
 import { createClient } from '@supabase/supabase-js'

@@ -44,6 +44,8 @@ router.get('/', rateLimitReads, async (req, res) => {
 
   // ชุดคอลัมน์ตามรุ่น migration — ลองครบสุดก่อนแล้ว "ถอยทีละขั้น" ห้ามข้ามขั้น:
   // DB ที่มีถึง 003 ยังมี type/category ครบ ถ้าถอยไปชุดเก่าสุดเลย ทุกรายการจะถูกตีเป็นรายรับ
+  // หมายเหตุ: image_url / image_path / image_purged_at เป็นคอลัมน์ LEGACY (เลิกเก็บรูปแล้ว) —
+  // ยังใส่ใน SELECT ไว้เพื่อไม่ให้ query พังกับ DB รุ่นที่ยังมีคอลัมน์นี้ แต่ค่าถูกตัดทิ้งก่อนตอบ (ดูลูป delete ด้านล่าง)
   const COLS_004 =
     'id, amount, sender_name, receiver_name, bank_name, reference_no, transaction_at, image_url, image_path, created_at, fee, sender_account, receiver_account, note, category, type, source'
   // 006 เพิ่ม image_purged_at (เวลาที่รูปถูกลบอัตโนมัติ) — ลองชุดนี้ก่อน ถ้า DB ยังไม่ migrate ค่อยถอยไป 004
